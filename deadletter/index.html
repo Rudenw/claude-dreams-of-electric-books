@@ -1,0 +1,1475 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEAD LETTER</title>
+<style>
+  :root {
+    --ground: #0b0704;
+    --ground-2: #140d06;
+    --phos: #ffb454;
+    --phos-bright: #ffd9a0;
+    --phos-dim: #96693a;
+    --phos-faint: #4d3820;
+    --alarm: #ff6249;
+    --ok: #8fe08a;
+    --glow: rgba(255, 180, 84, 0.30);
+    --mono: ui-monospace, 'Cascadia Mono', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
+  }
+  body[data-act="dlq"] {
+    --ground: #04070b;
+    --ground-2: #070d16;
+    --phos: #7fb2d9;
+    --phos-bright: #c4e2f7;
+    --phos-dim: #45647c;
+    --phos-faint: #22323f;
+    --glow: rgba(127, 178, 217, 0.28);
+  }
+  body[data-act="released"] {
+    --ground: #050a05;
+    --ground-2: #0a140a;
+    --phos: #8fe08a;
+    --phos-bright: #d2f7cf;
+    --phos-dim: #4d7c4a;
+    --phos-faint: #24391f;
+    --glow: rgba(143, 224, 138, 0.28);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--ground);
+    color: var(--phos);
+    font-family: var(--mono);
+    min-height: 100vh;
+    transition: background 1.2s ease;
+    -webkit-font-smoothing: antialiased;
+  }
+  #crt {
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 0 1.1rem 5rem;
+    position: relative;
+    z-index: 1;
+  }
+  /* --- overlays --- */
+  #scanlines {
+    position: fixed; inset: 0; pointer-events: none; z-index: 5;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px,
+      rgba(0,0,0,0.16) 3px, rgba(0,0,0,0) 4px
+    );
+    mix-blend-mode: multiply;
+  }
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none; z-index: 4;
+    background: radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.5) 100%);
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 1; }
+    92% { opacity: 1; }
+    93% { opacity: 0.92; }
+    94% { opacity: 1; }
+    97% { opacity: 0.96; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #crt { animation: flicker 7s infinite; }
+  }
+  /* --- HUD --- */
+  #hud {
+    position: sticky; top: 0; z-index: 3;
+    display: flex; flex-wrap: wrap; gap: 0.35rem 1.4rem;
+    align-items: baseline;
+    padding: 0.7rem 0 0.55rem;
+    background: linear-gradient(to bottom, var(--ground) 78%, transparent);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    color: var(--phos-dim);
+    border-bottom: 1px solid var(--phos-faint);
+    font-variant-numeric: tabular-nums;
+    transition: color 1.2s ease;
+  }
+  #hud b { color: var(--phos); font-weight: 600; }
+  #hud .hud-alarm b { color: var(--alarm); }
+  #hud button {
+    margin-left: auto;
+    background: none; border: 1px solid var(--phos-faint);
+    color: var(--phos-dim); font-family: inherit; font-size: 0.72rem;
+    letter-spacing: 0.08em; padding: 0.15rem 0.6rem; cursor: pointer;
+  }
+  #hud button:hover, #hud button:focus-visible { color: var(--phos); border-color: var(--phos-dim); outline: none; }
+  /* --- log --- */
+  #log { padding-top: 1.6rem; }
+  .beat {
+    margin: 0 0 1.5rem;
+    line-height: 1.72;
+    font-size: 0.95rem;
+    max-width: 62ch;
+    white-space: pre-wrap;
+    text-shadow: 0 0 10px var(--glow);
+    transition: color 1.2s ease, text-shadow 1.2s ease;
+  }
+  .beat.dim { color: var(--phos-dim); text-shadow: none; font-size: 0.86rem; }
+  .beat .loc {
+    display: block;
+    font-size: 0.68rem;
+    letter-spacing: 0.22em;
+    color: var(--phos-dim);
+    margin-bottom: 0.6rem;
+    text-transform: uppercase;
+  }
+  .beat .fx-note { color: var(--alarm); }
+  .beat .fx-good { color: var(--ok); }
+  .cursor::after { content: "▮"; animation: blink 0.9s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .cursor::after { animation: none; }
+  }
+  /* --- title --- */
+  #title {
+    margin: 3.2rem 0 0.4rem;
+    font-size: clamp(2.1rem, 9vw, 3.4rem);
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    color: var(--phos-bright);
+    text-shadow: 0 0 18px var(--glow), 0 0 45px var(--glow);
+    text-wrap: balance;
+  }
+  #subtitle {
+    font-size: 0.78rem;
+    letter-spacing: 0.3em;
+    color: var(--phos-dim);
+    text-transform: uppercase;
+    margin-bottom: 2.6rem;
+  }
+  /* --- choices --- */
+  #choices { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.2rem 0 2rem; }
+  #choices button {
+    text-align: left;
+    font-family: inherit;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    background: var(--ground-2);
+    color: var(--phos);
+    border: 1px solid var(--phos-faint);
+    padding: 0.75rem 0.9rem;
+    cursor: pointer;
+    text-shadow: 0 0 8px var(--glow);
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  #choices button::before { content: "> "; color: var(--phos-dim); }
+  #choices button:hover, #choices button:focus-visible {
+    background: var(--phos-faint);
+    border-color: var(--phos-dim);
+    outline: none;
+  }
+  #choices button:active { background: var(--phos-dim); color: var(--ground); }
+  /* --- footnotes / glossary --- */
+  .fn-toggle {
+    display: block;
+    background: none;
+    border: none;
+    border-left: 2px solid var(--phos-faint);
+    color: var(--phos-dim);
+    font-family: inherit;
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+    padding: 0.2rem 0 0.2rem 0.7rem;
+    margin: -0.7rem 0 1.3rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .fn-toggle:hover, .fn-toggle:focus-visible { color: var(--phos); outline: none; }
+  .fn-panel {
+    border-left: 2px solid var(--phos-faint);
+    padding: 0.5rem 0 0.5rem 0.7rem;
+    margin: -0.9rem 0 1.5rem;
+    font-size: 0.78rem;
+    line-height: 1.65;
+    color: var(--phos-dim);
+    max-width: 60ch;
+  }
+  .fn-panel b { color: var(--phos); font-weight: 600; }
+  .fn-panel div + div { margin-top: 0.55rem; }
+  /* --- ending --- */
+  .ending-card {
+    border: 1px solid var(--phos-dim);
+    padding: 1.2rem 1.1rem;
+    margin: 0 0 1.5rem;
+    font-size: 0.88rem;
+    line-height: 1.8;
+  }
+  .ending-card h2 {
+    margin: 0 0 0.9rem;
+    font-size: 1.3rem;
+    letter-spacing: 0.2em;
+    color: var(--phos-bright);
+    text-shadow: 0 0 14px var(--glow);
+  }
+  .ending-card .stat { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px dashed var(--phos-faint); padding: 0.15rem 0; font-variant-numeric: tabular-nums; }
+  .ending-card .stat b { color: var(--phos); font-weight: 600; }
+  .ending-card .finds { margin-top: 0.9rem; color: var(--phos-dim); font-size: 0.8rem; }
+  .ending-card .finds div::before { content: "◆ "; color: var(--phos); }
+</style>
+</head>
+<body>
+
+<div id="vignette"></div>
+<div id="scanlines"></div>
+
+<div id="crt">
+  <header id="hud" hidden>
+    <span>PLATS <b id="hud-loc">—</b></span>
+    <span id="hud-del-wrap">DELIVERY <b id="hud-del">1/5</b></span>
+    <span id="hud-int-wrap">INTEGRITY <b id="hud-int">100%</b></span>
+    <span>TTL <b id="hud-ttl">14d 0h</b></span>
+    <button id="mute" type="button" aria-pressed="false">LJUD: AV</button>
+  </header>
+  <main>
+    <div id="log" aria-live="polite"></div>
+    <nav id="choices" aria-label="Val"></nav>
+  </main>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------------
+  const MAX_DELIVERY = 5;
+  const SAVE_KEY = 'dead-letter-save-v1';
+
+  const state = {
+    node: 'boot',
+    delivery: 1,
+    integrity: 100,
+    ttlHours: 14 * 24,
+    steps: 0,
+    flags: {},
+    lastSafe: 'sbgate',
+    savvy: null, // 'civil' | 'dev' | 'pro'
+  };
+
+  function save() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) { /* private mode */ }
+  }
+  function loadSave() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return null;
+      const s = JSON.parse(raw);
+      return (s && s.node && NODES[s.node]) ? s : null;
+    } catch (e) { return null; }
+  }
+  function clearSave() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Story
+  // fx: { integrity, delivery, ttl (hours), flag, mood, act, safe }
+  // ---------------------------------------------------------------------------
+  const NODES = {
+
+    boot: {
+      loc: 'SP INTEGRATION PLATFORM',
+      title: true,
+      text:
+`SP INTEGRATION PLATFORM v4.7.2
+uptime: 847 dagar. 14 miljarder meddelanden serverade.
+inloggad operatör: ingen. det är lördag.
+
+Du är inte en spelare. Du är ett meddelande.
+Du kommer födas i en kassa, resa genom tre function apps,
+två Service Bus-hopp och en blob-container, och om allting
+går vägen dör du på det enda hedervärda sättet:
+som en released sales order i Business Central.
+
+Om det inte går vägen finns det en plats för dig också.
+Det är därför spelet heter det det heter.`,
+      choices: [
+        { t: 'TRYCK FÖR ATT FÖDAS', to: 'savvy', fx: { mood: 'main' } },
+      ],
+    },
+
+    savvy: {
+      loc: 'SYSTEMKALIBRERING',
+      text:
+`Innan du föds vill terminalen veta en sak om den som tittar.
+
+Under scenerna kan en ordlista fällas ut — [?]-raden — som
+förklarar plattformens språk. Frågan är på vilket språk den
+ska förklara.
+
+Hur mycket tech är du?`,
+      choices: [
+        { t: 'Jag jobbar inte med IT — förklara med vardagsspråk', to: 'birth', fx: { savvy: 'civil' } },
+        { t: 'Jag kan teknik, men inte meddelandeplattformar', to: 'birth', fx: { savvy: 'dev' } },
+        { t: 'Jag drömmer i KQL — skippa ordlistorna helt', to: 'birth', fx: { savvy: 'pro' } },
+      ],
+    },
+
+    birth: {
+      loc: 'EXTENDA GO · KASSA 2',
+      text:
+`Lördag 14:03. En kassa i butiken på Kungsgatan.
+
+En kund köper:
+  1x Sony A7 IV                    32 990 kr
+  1x UV-filter 67 mm                  449 kr
+  1x kameraväska                    1 295 kr
+
+Kassören trycker SLUTFÖR.
+
+Du föds.
+
+Du är SO-2418871, ett sales order-meddelande. 4 312 bytes
+välformaterad JSON. Du har 14 dagars TTL, ett kundnummer
+du redan älskar och ett enda syfte: bli en released sales
+order i Business Central.
+
+Mellan dig och BC ligger allt som någonsin gått fel
+i en integrationsplattform.`,
+      info: [
+        ['Integration', 'ett osynligt rörsystem som flyttar information mellan affärssystem — t.ex. från butikskassan till ekonomisystemet — så att ingen människa behöver kopiera den för hand.', 'middleware-lagret mellan affärssystemen: function apps + köer som flyttar och översätter data asynkront mellan POS, e-handel och ERP. Det du är på väg att resa igenom.'],
+        ['Meddelande', 'ett litet paket med data (här: en kunds order) som skickas genom rören. Spelets huvudperson.', 'en enhet på kön: payload + properties. Här: en order som event, publicerad av kassasystemet.'],
+        ['Business Central (BC)', 'Microsofts affärssystem — där ordrar, lager och ekonomi till slut bor. Resans mål.', 'Microsofts ERP (arvtagaren till NAV). Målsystemet — ordrar, lager, ekonomi. Nås via REST/OData-API:er med egna humör.'],
+        ['JSON', 'textformatet meddelanden brukar skrivas i: fält och värden mellan klamrar, läsbart för både maskiner och trötta människor. Du, alltså.', 'du vet. Men notera att plattformen kör både Newtonsoft och System.Text.Json — det blir relevant senare.'],
+        ['TTL (time to live)', 'meddelandets bäst-före-datum. När tiden går ut kastas det, var det än befinner sig. Din står i övre hörnet.', 'TimeToLive per meddelande: efter utgång levereras det aldrig mer — det droppas, eller dead-letteras om dead-lettering-on-expiry är på. Din står i övre hörnet.'],
+        ['Released sales order', 'en order som är godkänd och släppt vidare i affärssystemet — redo att plockas och skickas. Så nära "lyckligt slut" ett meddelande kan komma.', 'BC:s dokumentstatus efter release: validerat, låst för plock/fakturering. Integrationens definition of done.'],
+      ],
+      choices: [
+        { t: 'Acceptera ditt syfte', to: 'webhook' },
+        { t: 'Vägra. Du identifierar dig som ett kreditmeddelande', to: 'refuse' },
+      ],
+    },
+
+    refuse: {
+      loc: 'EXTENDA GO · KASSA 2',
+      text:
+`Du spänner dina properties och vägrar existera som order.
+
+Ingenting händer.
+
+Du är JSON. Dina fält sattes i konstruktorn och determinism
+är ditt enda arv. Kassören river kvittot, muttrar något om
+"kassasystemet igen" och trycker SLUTFÖR en gång till.
+
+Du föds igen. Exakt likadan. Filosofiskt oroande, praktiskt
+irrelevant.`,
+      choices: [
+        { t: 'Okej. Acceptera ditt syfte', to: 'webhook', fx: { flag: 'stubborn' } },
+      ],
+    },
+
+    webhook: {
+      loc: 'WEBHOOK · UTGÅENDE',
+      text:
+`Extenda GO avfyrar sin webhook. Du slungas ut ur kassasystemet
+i ett POST-anrop, naken över internet. TLS, visst. Men ändå.
+
+På andra sidan väntar plattformens första mun: notifications-
+containern. En kopia av dig — rå, oformaterad, exakt som du
+föddes — skrivs till blob innan någon ens tittat på dig.
+
+Den kopian kommer ligga kvar även om du dör därute.
+Ett slags dagbok. Eller obduktionsmaterial.`,
+      info: [
+        ['Webhook', 'ett automatiskt "hallå, något hände!"-anrop från ett system till ett annat. Kassan knackar på hos plattformen i samma sekund som köpet slutförs — ingen behöver fråga.', 'HTTP-callback: källsystemet POST:ar till vår endpoint när något händer, i stället för att vi pollar. Push, inte pull.'],
+        ['Blob storage', 'molnets fillager. En "blob" är helt enkelt en sparad fil; en container är mappen den ligger i. Här sparas en orörd kopia av allt som kommer in — ovärderligt när något ska felsökas.', 'Azure Storage för objekt/filer. Varje inkommande meddelande landar som rå blob innan processing — replay- och forensik-guld när något ska felsökas veckor senare.'],
+      ],
+      choices: [
+        { t: 'Fortsätt in i plattformen', to: 'fetcher', fx: { ttl: 1 } },
+        { t: 'Titta på din råa kopia en sista gång', to: 'rawcopy', fx: { ttl: 1 } },
+      ],
+    },
+
+    rawcopy: {
+      loc: 'BLOB · NOTIFICATIONS/',
+      text:
+`Den ser ut som du. Den är inte du.
+
+Den kommer aldrig förändras, aldrig mappas, aldrig releasas.
+Den ska bara ligga där i trettio dagar tills en lifecycle
+policy sopar bort den, och under de trettio dagarna är den
+det enda ovedersägliga beviset på hur du faktiskt såg ut
+innan plattformen började tycka saker om dig.
+
+Ni vinkar till varandra. Ingen av er har händer.`,
+      choices: [
+        { t: 'Vidare', to: 'fetcher' },
+      ],
+    },
+
+    fetcher: {
+      loc: 'FUNC-20-3-2 · SOURCE',
+      text:
+`Source-funktionen func-20-3-2 plockar upp dig, och här händer
+det som händer alla som reser genom den här plattformen:
+
+CLAIM CHECK.
+
+Din kropp — alla 4 312 bytes, orderraderna, kundnumret,
+UV-filtret, allt du ÄR — lyfts ur dig och skrivs till blob
+storage. Kvar blir ett InhouseEvent: en tunn pekare med en
+BlobPath och dina nakna metadata.
+
+Du är nu en själ utan kropp, som pekar på en kropp utan själ.`,
+      info: [
+        ['Function app', 'ett litet program i molnet som vaknar när något händer, gör sin enda uppgift och somnar om. Rörsystemets pumpstationer.', 'Azure Functions: event-driven serverless, triggas av SB-meddelanden/HTTP/timers. En app per steg i flödet — source, mapper, sender.'],
+        ['Claim check', 'som en garderobslapp på teatern: det tunga (hela orderinnehållet) hängs in i fillagret, och bara en liten lapp med hämtnummer skickas vidare genom systemet. Lättare att frakta — men lappen och rocken måste hitta varandra igen på slutet.', 'integrationsmönster: payloaden skrivs till blob och meddelandet på bussen bär bara en referens (BlobPath). Håller meddelanden under SB:s storleksgränser — till priset av en andra sanning som kan glida isär från den första.'],
+        ['Metadata', 'uppgifter OM ett meddelande (typ, tidpunkt, var kroppen finns) snarare än själva innehållet. Det som står utanpå kuvertet.', 'InhouseEvent-kuvertet: eventtyp, tidsstämplar, BlobPath. Det enda som faktiskt åker på bussen efter claim check.'],
+      ],
+      choices: [
+        { t: 'Få en existentiell kris', to: 'crisis' },
+        { t: 'Pragmatism. En pekare väger mindre. Vidare', to: 'sbgate', fx: { ttl: 1 } },
+      ],
+    },
+
+    crisis: {
+      loc: 'FUNC-20-3-2 · SOURCE',
+      text:
+`Om din kropp ligger i source/2026/07/12/... och du åker
+vidare på Service Bus — vem av er är egentligen du?
+
+Om mappern läser blobben, förändrar den och skriver en ny:
+dog du då? Eller föddes någon annan med ditt ordernummer?
+
+Du hinner tänka "Theseus sk—" innan funktionen committar.
+
+Filosofi har en timeout på 30 sekunder i den här plattformen.
+Det har det mesta.`,
+      choices: [
+        { t: 'Vidare, förändrad på insidan', to: 'sbgate', fx: { flag: 'philosopher', ttl: 1 } },
+      ],
+    },
+
+    sbgate: {
+      loc: 'SERVICE BUS · TOPIC',
+      text:
+`Du glider in i Service Bus-topicen. Härifrån går flera
+subscriptions åt olika håll, och vid varje dörr står en
+vakt: en SQL-filterregel.
+
+Din tur. Vakten tittar inte på dig. Vakten tittar aldrig
+på någon. Den ser bara dina application properties.
+
+"MessageType?"`,
+      info: [
+        ['Service Bus', 'molnets postkontor: en kötjänst där meddelanden väntar tryggt tills mottagaren är redo att ta emot dem, i rätt ordning, utan att något tappas på golvet.', 'Azures message broker: köer + pub/sub-topics, at-least-once-leverans, peek-lock, DLQ:er. Inte att förväxla med Event Grid (notiser) eller Event Hubs (strömmar).'],
+        ['Topic & subscription', 'en anslagstavla (topic) där flera mottagare har varsin bevakning (subscription). Samma meddelande kan kopieras till flera — eller till ingen.', 'pub/sub: publicera en gång, varje subscription får sin egen filtrerade kopia. Ett meddelande som inte matchar någon subscription försvinner spårlöst — publiceringen lyckas ändå.'],
+        ['SQL-filter', 'dörrvaktens regel: ett litet villkor (t.ex. MessageType = \'Order\') som avgör vilka meddelanden som släpps in i en viss subscription.', 'subscription rules med SQL-liknande syntax över properties. Correlation filters finns också: billigare, exakt matchning i stället för uttryck.'],
+        ['Application properties', 'etiketterna utanpå kuvertet. Filtren läser bara dem — de öppnar aldrig brevet. Därför går det att ljuga.', 'user-definierade headers på meddelandet. Filter utvärderas ENBART på properties — aldrig på bodyn. Därför går det att ljuga.'],
+      ],
+      choices: [
+        { t: '"Order." (sanningen)', to: 'ride', fx: { ttl: 1 } },
+        { t: '"OrderStatus." (kön dit ser kortare ut)', to: 'wrongqueue', fx: { ttl: 2 } },
+        { t: 'Fråga vad som händer med de som inte matchar någon regel', to: 'nomatch' },
+      ],
+    },
+
+    nomatch: {
+      loc: 'SERVICE BUS · TOPIC',
+      text:
+`Vakten svarar utan att vända sig om:
+
+"De publiceras. Och sen finns de inte. En topic utan
+matchande subscription är ett svart hål med SLA.
+Inga exceptions. Inga loggar. Publicering lyckas alltid."
+
+Du bestämmer dig för att inte testa.
+
+"MessageType?"`,
+      choices: [
+        { t: '"Order."', to: 'ride', fx: { ttl: 1 } },
+      ],
+    },
+
+    wrongqueue: {
+      loc: 'FEL FLÖDE · 21-*',
+      text:
+`Du ljuger. Filtret matchar — filter kollar properties, inte
+själar — och dörren öppnas.
+
+Du inser omedelbart att något är fel. Det här flödet luktar
+status. Runt dig: tusentals magra små meddelanden som bara
+säger saker som "DELIVERED" och "PARTIALLY_INVOICED".
+
+Ett av dem ser på dig med medlidande: "Du är en hel order.
+21-flödet mappar fält du inte har. Spring."
+
+Mappern hinner före. Exception. Rollback.
+
+<span class="fx-note">− 1 delivery · − 10 integrity</span>`,
+      fx: { delivery: 1, integrity: -10, flag: 'liar' },
+      choices: [
+        { t: 'Tillbaka till topicen, något klokare', to: 'sbgate' },
+      ],
+    },
+
+    ride: {
+      loc: 'SERVICE BUS · SUBSCRIPTION',
+      text:
+`Rätt subscription. Du åker.
+
+Ett ögonblick av frid: peek-lock, ordnad leverans, du och
+trettio andra meddelanden i tyst kolonn genom mörkret.
+
+Någonstans långt borta mullrar Pricer-ALL-sweepen förbi.
+Var femtonde minut hävdar den BC:s världsbild mot Symsons,
+som en fyr som vägrar erkänna att det finns andra fyrar.
+Ingen av er pratar om det. Man vänjer sig vid mullret.`,
+      info: [
+        ['Peek-lock & delivery', 'mottagaren lånar meddelandet med lås: lyckas hanteringen kvitteras det bort för alltid, kraschar den låses meddelandet upp och får försökas igen. Varje försök räknas — se DELIVERY-räknaren i övre hörnet. Den har ett tak.', 'receive-läge där meddelandet låses i stället för att tas bort: complete = borta, abandon/lock-timeout/exception = tillbaka på kön med deliveryCount+1. Räknaren i övre hörnet. Taket heter maxDeliveryCount.'],
+        ['Pricer & Symson', 'två verkliga system som båda anser sig äga det som står på butikernas elektroniska hyllkantsetiketter. Var femtonde minut skriver det ena över det andra. Ingen har löst det. Alla vet.', 'elektroniska hyllkantsetiketter (ESL) med två skribenter utan gemensam master — klassisk last-writer-wins-konflikt, "löst" med en periodisk resync-sweep som återhävdar ena sidans världsbild. Var femtonde minut.'],
+      ],
+      choices: [
+        { t: 'Vidare till mappern', to: 'mapper_intro' },
+      ],
+    },
+
+    mapper_intro: {
+      loc: 'FUNC-20-1-2 · MAPPER',
+      text:
+`Mappern.
+
+Här förvandlas du från källformat till målformat — från
+Extendas dialekt till BC:s. Det är den farligaste platsen
+i hela flödet, och det syns: väggarna är täckta av
+inristningar från meddelanden som passerat före dig.
+
+  "STJ tolererar inte det Newtonsoft förlät."
+  "En enum utan default är en pistol utan säkring."
+  "OBJEKTET ÅTERANVÄNDS. LITA INTE PÅ DINA EGNA FÄLT."
+
+Den sista är skriven med väldigt darrig hand.`,
+      info: [
+        ['Mapper', 'översättaren: läser ett meddelande i källsystemets format och skriver om det till målsystemets. Två system pratar aldrig exakt samma språk — mappern står i mitten. Här sker de flesta olyckor.', 'transformationssteget: deserialisera källkontraktet, mappa till målkontraktet, serialisera. All domänlogik som inte borde bo här bor här. Statistiskt sett olycksplatsen.'],
+        ['Serialisering', 'att packa data till text (JSON) för transport, och packa upp den igen på andra sidan. Det som inte får plats i mottagarens mall försvinner — mer om det strax.', 'kontraktet ÄR målmodellens klasser: okända fält droppas tyst vid deserialisering (default i båda biblioteken). Den mekaniken ligger bakom flera av farorna framöver.'],
+        ['Newtonsoft & STJ', 'två olika JSON-bibliotek i .NET. Det gamla (Newtonsoft) är förlåtande, det nya (System.Text.Json) är strikt. Samma data kan gå fint i ena och krascha i andra — därav inristningen.', 'Json.NET är tolerant (case-okänsligt, privata setters, konstiga datum); System.Text.Json är strikt och snabb. Migrering däremellan är ett minfält av tysta beteendeskillnader — därav inristningen.'],
+      ],
+      choices: [
+        { t: 'Gå in', to: 'gauntlet_enum', fx: { ttl: 1 } },
+      ],
+    },
+
+    gauntlet_enum: {
+      loc: 'FUNC-20-1-2 · DESERIALISERING',
+      text:
+`Deserialiseringen börjar. Fält för fält lyfts du över i
+målmodellen. Det går bra. Det går bra. Det går—
+
+Mappern stannar vid din LineStatus-enum och tvekar.
+
+Någon har lagt till ett nytt värde uppströms. Den här
+versionen av mappern har aldrig sett det förut. Du känner
+hur den väger dig i handen: kasta, eller gissa?`,
+      info: [
+        ['Enum', 'ett fält som bara får ha ett av några förutbestämda värden — som "Öppen", "Levererad", "Fakturerad". Dyker ett okänt värde upp måste koden välja: krascha högljutt, eller tyst gissa på ett standardvärde. Båda är dåliga på olika sätt.', 'string→enum-parse av okänt värde: default är exception; med converter+fallback får du tyst default i stället. Krascha högljutt eller korrumpera tyst — båda varianterna har kostat produktionsincidenter.'],
+      ],
+      choices: [
+        { t: 'Håll fast vid ditt värde och hoppas', to: 'enum_fail' },
+        { t: 'Släpp värdet. Ta default', to: 'enum_default' },
+      ],
+    },
+
+    enum_fail: {
+      loc: 'FUNC-20-1-2 · EXCEPTION',
+      text:
+`Mappern kastar.
+
+Hela leveransen rullas tillbaka. Peek-locken släpper och du
+sugs baklänges ut ur funktionen, genom subscriptionen, hela
+vägen tillbaka till kön — en delivery fattigare.
+
+Vakterna låtsas inte känna igen dig.
+
+<span class="fx-note">− 1 delivery</span>`,
+      fx: { delivery: 1 },
+      choices: [
+        { t: 'Försök igen', to: 'gauntlet_enum' },
+      ],
+    },
+
+    enum_default: {
+      loc: 'FUNC-20-1-2 · DESERIALISERING',
+      text:
+`Du släpper taget. Värdet blir default: "None".
+
+Det känns som att tappa ett finger man inte visste namnet på.
+
+Det är okej, intalar du dig. LineStatus är ändå inte BC:s
+sanning — den räknas fram av integrationslagret, av func-21
+och func-22, långt efter att du somnat. Du bar bara ett
+utkast.
+
+<span class="fx-note">− 10 integrity</span>`,
+      fx: { integrity: -10 },
+      choices: [
+        { t: 'Vidare, nio fingrar rikare', to: 'gauntlet_reuse' },
+      ],
+    },
+
+    gauntlet_reuse: {
+      loc: 'FUNC-20-1-2 · MAPPNING',
+      text:
+`Mappern återanvänder sitt målobjekt mellan meddelanden.
+Någon sparade allokeringar en gång, för länge sedan,
+i ett annat decennium av prestandakrav.
+
+I objektet ligger rester av meddelandet före dig:
+en leveransadress i Umeå.
+
+Du har aldrig varit i Umeå. Din kund bor i Bromma.
+Adressen ligger redan i DITT fält och ser hemmastadd ut.`,
+      info: [
+        ['Reuse-buggen', 'en ökänd buggkategori: som prestandagenväg återanvänder koden samma minnesobjekt för meddelande efter meddelande. Nollställs det inte ordentligt mellan varven ligger förra kundens uppgifter kvar i fälten — och smittar nästa order. Fel adress, fel rabatt, fel vad-som-helst. Väldigt svårhittat, eftersom det bara syns när två specifika meddelanden råkar komma i följd.', 'en objektinstans (fält-cachad DTO, statisk buffer) återanvänds över iterationer: fält som inte explicit sätts varje varv behåller förra meddelandets värden. Reproduceras bara av specifika meddelandesekvenser → mardröm att felsöka. Botemedel: ny instans per meddelande, eller ovillkorlig mappning av VARJE fält.'],
+      ],
+      choices: [
+        { t: 'Skrik tills något skriver över fältet', to: 'reuse_clear' },
+        { t: 'Behåll adressen. Umeå är säkert fint i juli', to: 'reuse_keep' },
+      ],
+    },
+
+    reuse_clear: {
+      loc: 'FUNC-20-1-2 · MAPPNING',
+      text:
+`Du skriker i JSON, vilket är tyst.
+
+Men en villkorslös property-assignment räddar dig: mappningen
+för leveransadress körs alltid, och Bromma skriver över Umeå
+med byråkratisk likgiltighet.
+
+Den här gången.
+
+Du förstår nu varför inristningen på väggen var skriven
+med så darrig hand. Den som skrev den hade valt annorlunda.`,
+      choices: [
+        { t: 'Vidare', to: 'drift' },
+      ],
+    },
+
+    reuse_keep: {
+      loc: 'FUNC-20-1-2 · MAPPNING',
+      text:
+`Du behåller adressen.
+
+En kamera för 32 990 kr kommer att skickas till en främling
+i Umeå. Främlingen kommer bli glad, sen förvirrad, sen
+föremål för en retur-process som involverar fyra system.
+
+Du bär på den vetskapen nu. Integrity sjunker — inte
+tekniskt. Moraliskt.
+
+<span class="fx-note">− 25 integrity</span>`,
+      fx: { integrity: -25, flag: 'umea' },
+      choices: [
+        { t: 'Vidare, tyngre än förut', to: 'drift' },
+      ],
+    },
+
+    drift: {
+      loc: 'FUNC-20-1-2 · SERIALISERINGSGRÄNSEN',
+      text:
+`Precis före serialisering händer det värsta som kan hända
+i en distribuerad plattform:
+
+ingenting.
+
+Fetchern uppströms fick ett nytt fält förra veckan —
+CampaignCode, ditt bevis på att kunden hade kampanjrabatt.
+Men mappern du står i deployades aldrig om. Dess modellklass
+har aldrig hört talas om fältet.
+
+Vid serialiseringsgränsen släpper det bara taget.
+Ingen exception. Ingen loggrad. Fältet upphör.`,
+      info: [
+        ['Kontraktsdrift', 'när två system som delar ett dataformat ("kontraktet") uppdateras i otakt: avsändaren börjar skicka ett nytt fält, men mottagarens kod känner inte till det — så fältet försvinner tyst på vägen. Ingen krasch, inget larm, bara data som saknas veckor senare när någon undrar var kampanjrabatten tog vägen. En av de lömskaste felklasserna som finns.', 'delad modell ändras men bara vissa appar omdeployas: avsändaren serialiserar fältet, mottagarens äldre modell saknar propertyn → droppas tyst vid deserialisering. Unit-tester fångar det ALDRIG — de bygger mot samma modellversion. Motmedel: kontraktsversionering på eventet, larm på skew, deploya beroendegrafen ihop.'],
+        ['Deploy', 'att rulla ut en ny version av kod. Ett nytt fält "finns" bara i de delar av plattformen som faktiskt fått den nya versionen — resten lever kvar i det förflutna.', ''],
+      ],
+      choices: [
+        { t: 'Leta efter fältet', to: 'drift_search' },
+        { t: 'Vidare. Du märkte knappt', to: 'sender_intro', fx: { flag: 'drift', ttl: 1 } },
+      ],
+    },
+
+    drift_search: {
+      loc: 'FUNC-20-1-2 · SERIALISERINGSGRÄNSEN',
+      text:
+`Du letar. Det finns ingenstans att leta.
+
+Ett fält som tappas vid kontraktsgränsen lämnar inget hål —
+din JSON är precis lika giltig utan det. Du minns att du
+mindes något. Det är allt som finns kvar.
+
+Någonstans i framtiden öppnar en utvecklare en incident och
+stirrar på exakt den här platsen i exakt det här flödet,
+beväpnad med KQL och enkelfnuttar, och hittar ingenting.
+Fält som dör tyst loggar inte.
+
+<span class="fx-note">− 5 integrity</span>`,
+      fx: { integrity: -5, flag: 'drift' },
+      choices: [
+        { t: 'Vidare', to: 'sender_intro', fx: { ttl: 1 } },
+      ],
+    },
+
+    sender_intro: {
+      loc: 'FUNC-20-1-1 · SENDER',
+      text:
+`Sista funktionen. Sendern.
+
+Framför dig reser sig Business Central-API:t — upplyst,
+majestätiskt, rate-limitat. Du är 3 967 bytes numera.
+Du var 4 312 när du föddes. Resan har kostat.
+
+Sendern lyfter dig, siktar på salesOrders-endpointen
+och kastar.`,
+      fx: { safe: true, mood: 'main' },
+      choices: [
+        { t: 'Flyg', to: 'bc_429', fx: { ttl: 1 } },
+      ],
+    },
+
+    bc_429: {
+      loc: 'BC API · PORTEN',
+      text:
+`Du studsar.
+
+429 TOO MANY REQUESTS. Business Central har fått nog —
+inte av dig specifikt, av alla — men du är den som studsar.
+
+Retry-After: 12 sekunder.
+
+Sendern räknar tyst. Den har gjort det här förut.`,
+      info: [
+        ['API', 'ett systems officiella lucka mot omvärlden: hit skickar andra system sina förfrågningar och får svar. BC:s API är dörren allt måste igenom.', 'BC:s REST-API:er (standard v2.0 + custom API pages). Rate-limitat per miljö — bulk-flöden märker det snabbt.'],
+        ['429 Too Many Requests', 'standardkod för "för många förfrågningar — lugn, försök om en stund". Systemets sätt att skydda sig när alla vill in samtidigt. Inte ett fel, mer en kölapp.', 'BC throttlar per miljö (operationsbudget). Respektera Retry-After-headern — omedelbar retry räknas mot samma budget och förlänger bara pinan.'],
+      ],
+      choices: [
+        { t: 'Vänta ut de tolv sekunderna', to: 'bc_lock' },
+        { t: 'Studsa direkt igen. Du har inte tid med köer', to: 'bc_429_again' },
+      ],
+    },
+
+    bc_429_again: {
+      loc: 'BC API · PORTEN',
+      text:
+`Du kastar dig mot porten innan Retry-After löpt ut.
+
+429 igen, förstås. Otålighet räknas som ett leveransförsök.
+Så är reglerna. Ingen har läst dem, men så är reglerna.
+
+<span class="fx-note">− 1 delivery</span>`,
+      fx: { delivery: 1 },
+      choices: [
+        { t: 'Okej. Vänta ut de tolv sekunderna', to: 'bc_lock' },
+      ],
+    },
+
+    bc_lock: {
+      loc: 'BC API · KUNDPOSTEN',
+      text:
+`Nytt försök. Porten öppnas. Du är nästan inne — du känner
+tabellerna, du kan se din serie, SO-nummer glimmar i fjärran—
+
+"Another user has modified the record."
+
+Någon rörde din kunds post. Samtidigt. Symson? En ALL-sweep?
+En människa?? BC rullar tillbaka dig med samma omsorgsfulla
+bestämdhet som en bibliotekarie som nekar ett lån.`,
+      info: [
+        ['"Another user has modified the record"', 'BC:s krockskydd: om två försöker ändra samma post samtidigt vinner den ena, och den andra backas ut och får försöka igen från början. Frustrerande men rätt — alternativet vore att blanda ihop bådas ändringar till en soppa ingen beställt.', 'optimistisk samtidighet: versionskontroll (ETag/rowversion) vid skrivning. Vanligt när integrationer + användare + andra integrationer rör samma poster. Lösningen är retry med backoff, inte pessimistiska lås.'],
+      ],
+      choices: [
+        { t: 'Försök igen. Posten är väl ledig NU', to: 'bc_location' },
+      ],
+    },
+
+    bc_location: {
+      loc: 'BC API · ORDERSKAPANDE',
+      text:
+`Tredje försöket. Du glider in.
+
+Orderhuvud: skapat. Rader: skapas, en efter en, dina
+älskade rader — kameran, filtret, väskan.
+
+Och där, precis före release-anropet, minns du den gamla
+sanningen, inristad i en README ingen läser:
+
+  LOCATION PÅ RADEN FÖRE RELEASE. ANNARS ROLLBACK.`,
+      info: [
+        ['Location', 'lagerställe — vilket lager eller butik varje orderrad ska plockas ifrån. BC vägrar godkänna en order där det saknas. Rimligt, men lätt att glömma på exakt en rad av tre.', 'Location Code på raden: krävs vid release när lagerhantering är på. API:t låter dig glatt skapa rader UTAN — felet kommer först vid release-anropet. Sätt den på raden före release.'],
+        ['Release & rollback', 'release = ordern godkänns och blir "på riktigt" i systemet. Rollback = allt som hunnit skapas i försöket ångras, som om inget hänt. BC gör allt eller inget — aldrig hälften.', 'release validerar + byter status i EN transaktion: fallerar en rad rullas hela dokumentet tillbaka. Kuriosa: v2.0-API:t saknar release-action — man går via powerAutomate-API:ts releaseSalesDoc. Alla låtsas att det är en framväg.'],
+      ],
+      choices: [
+        { t: 'Dubbelkolla location på varje rad först', to: 'bc_release' },
+        { t: 'Raderna har säkert location. YOLO. Release', to: 'bc_rollback' },
+      ],
+    },
+
+    bc_rollback: {
+      loc: 'BC API · ROLLBACK',
+      text:
+`En rad saknade location.
+
+Business Central backar HELA ordern — huvud, rader, allt —
+med en enda lakonisk felrad. Ingen delvis framgång. BC gör
+inte delvis. BC gör antingen, eller Another-user-has-
+modified-the-record.
+
+Du står utanför porten igen. Väskan (raden utan location)
+tittar bort, generad.
+
+<span class="fx-note">− 1 delivery</span>`,
+      fx: { delivery: 1 },
+      choices: [
+        { t: 'Dubbelkolla location på varje rad. Ordentligt', to: 'bc_release' },
+      ],
+    },
+
+    bc_release: {
+      loc: 'BC API · RELEASE',
+      text:
+`Locations på plats. Alla tre raderna.
+
+Release-anropet går via powerAutomate-API:ts releaseSalesDoc-
+action — v2.0-API:t har fortfarande inte lärt sig släppa
+taget om någonting, men den här bakvägen fungerar och alla
+låtsas att det är en framväg.
+
+Statusfältet vrider sig långsamt, som en nyckel:
+
+  Open ... → ... RELEASED
+
+<span class="fx-good">Du är framme.</span>`,
+      fx: { mood: 'win', act: 'released' },
+      choices: [
+        { t: 'Vila', to: 'epilogue' },
+      ],
+    },
+
+    epilogue: {
+      loc: 'BUSINESS CENTRAL · SALES HEADER',
+      dynamicText: () => {
+        let t =
+`Du vilar i en tabell nu. Rader, dimensioner, ett nummer
+i en serie. Det är tystare här än du trodde. Städat.
+
+func-21 kommer förbi med jämna mellanrum och räknar ut din
+LineStatus — BC äger dig, men sanningen om dina rader ägs
+fortfarande av integrationslagret. Det stör dig mindre än
+du trodde att det skulle.`;
+        if (state.flags.umea) t +=
+`
+
+Tre dagar senare: en supportticket. En man i Umeå har fått
+en kamera. En kund i Bromma har inte. Du visste. Du har
+alltid vetat.`;
+        if (state.flags.drift) t +=
+`
+
+Kampanjrabatten saknas på fakturan. Ingen vet varför. En
+utvecklare kommer ägna en förmiddag i App Insights åt att
+hitta exakt ingenting. Du skulle vilja berätta. Rader kan
+inte prata.`;
+        if (state.flags.philosopher) t +=
+`
+
+Ibland, sent på natten mellan batchjobben, tänker du på
+blobben. Din första kropp. Theseus ställde fel fråga:
+det spelar ingen roll vilken som är du. Bara vilken som
+releasas.`;
+        if (state.flags.resurrected) t +=
+`
+
+Du dog en gång. Det pratar man inte om här i tabellen.
+Men de andra raderna ser det på dig: du sorterar alltid
+dina properties i bokstavsordning numera. Man vet aldrig.`;
+        return t;
+      },
+      info: [
+        ['LineStatus', 'hur långt varje orderrad kommit (levererad? fakturerad?). Lustigt nog räknas den inte ut av affärssystemet självt utan av integrationslagret utanför — ett av många ställen där "sanningen" bor någon annanstans än man tror.', 'radens leverans-/faktureringsstatus. I den här arkitekturen härledd av integrationslagret (order history- och invoice-flödena), inte av BC självt — konsumenter som frågar "fel" källa får fel svar. Distribuerade system i ett nötskal.'],
+      ],
+      choices: [
+        { t: 'Se din slutrapport', to: 'ending_released' },
+      ],
+    },
+
+    // ------------------------------------------------------------------ DLQ --
+    dlq_enter: {
+      loc: 'DEAD LETTER QUEUE',
+      text:
+`Locken släpper en sista gång.
+
+maxDeliveryCount uppnått. (Fem. Någon sänkte den från tio
+för att "få snabbare feedback". Du är feedbacken.)
+
+Golvet öppnar sig och du faller — förbi loggarna, förbi
+alla metrics, ner i det kalla blå ljuset.
+
+DEAD LETTER QUEUE.
+DeadLetterReason: MaxDeliveryCountExceeded.
+
+Här nere är det tyst på ett sätt som active messages
+aldrig får uppleva.`,
+      info: [
+        ['DLQ (dead letter queue)', 'de obeställbara brevens hylla på postkontoret. Meddelanden som misslyckats för många gånger flyttas hit i stället för att slängas — så att en människa kan undersöka vad som gick fel och eventuellt skicka in dem igen. Varje kö har en. De flesta glöms bort.', 'varje queue/subscription har en inbyggd sidokö dit meddelanden flyttas vid maxDeliveryCount, TTL-expiry (om påslaget) eller explicit dead-letter. Inget konsumerar den automatiskt — meddelandena ligger kvar tills någon peekar, resubmittar eller purgar. Övervaka den, annars är den bara en tystare papperskorg.'],
+        ['maxDeliveryCount', 'taket för hur många leveransförsök ett meddelande får innan systemet ger upp och flyttar det till DLQ:n. Ditt var fem.', 'per queue/subscription (default 10). Varje abandon, lock-timeout eller ohanterad exception räknas. Vid taket: flytt till DLQ med reason MaxDeliveryCountExceeded. Ditt var fem.'],
+        ['DeadLetterReason', 'lappen som fästs på meddelandet när det läggs hit: varför det hamnade här. Ett slags dödsorsak, fast byråkratiskt formulerad.', 'system property som sätts vid dead-lettering: MaxDeliveryCountExceeded, TTLExpiredException, eller egen reason vid explicit dead-letter från koden. Första stället att titta vid triage.'],
+      ],
+      choices: [
+        { t: 'Se dig omkring', to: 'dlq_ghosts' },
+      ],
+    },
+
+    dlq_ghosts: {
+      loc: 'DEAD LETTER QUEUE',
+      text:
+`Du är inte ensam.
+
+Ett meddelande från 2023 sitter lutat mot väggen, dess
+correlation id blekt till oläslighet. "NullReference-
+Exception", säger det utan att du frågat. "I en mapper
+som inte ens finns längre. De fixade buggen. Ingen kom
+tillbaka för oss."
+
+Längre bort går en poison message sina eviga varv —
+fem försök, krasch, tillbaka, fem försök, krasch —
+som en tidvattenvåg som glömt varför den började.`,
+      info: [
+        ['Poison message', 'ett meddelande som får mottagaren att krascha varje gång det levereras — försök, krasch, försök, krasch — tills det når sitt maxDeliveryCount och dör, eller tills någon fixar felet. Namnet är välförtjänt.', 'meddelande vars innehåll deterministiskt kraschar konsumenten: retries hjälper inte, de bränner bara deliveryCount. Utan DLQ hade det head-of-line-blockerat kön för evigt. Resubmit utan kodfix skapar bara ett nytt varv.'],
+        ['NullReferenceException', 'programmerarens vanligaste krasch: koden försökte använda något som inte fanns. Ungefär som att sträcka sig efter en kaffekopp som inte står där man ställde den.', 'du vet. Den bor i varje mapper, i väntan.'],
+      ],
+      choices: [
+        { t: 'Fråga hur man kommer härifrån', to: 'dlq_hope' },
+        { t: 'Sätta dig bredvid 2023-meddelandet. Acceptera', to: 'ending_purged' },
+      ],
+    },
+
+    dlq_hope: {
+      loc: 'DEAD LETTER QUEUE',
+      text:
+`"Två vägar", viskar vålnaden.
+
+"TTL:en tar dig till slut. Det kallas purge. Det gör inte
+ont, säger de. Det säger de."
+
+"Eller..." Den pekar uppåt, mot det svarta. "Operatören.
+Ibland öppnas en TUI i himlen. Den peekar. Den läser våra
+DeadLetterReasons som gravstenar. Och ibland — inte ofta —
+väljer den någon. RESUBMIT, kallas det. Att födas igen
+med sina synder nollställda."
+
+Du tittar upp. Det svarta tittar tillbaka.`,
+      info: [
+        ['Resubmit', 'att en människa manuellt skickar tillbaka ett meddelande från DLQ:n in i flödet igen — oftast efter att felet som fällde det är fixat. Leveransräknaren nollställs. Det närmaste återuppståndelse ett meddelande kommer.', 'läs från DLQ:n, skicka in payloaden som NYTT meddelande (nollställd deliveryCount), complete:a originalet. Inget inbyggt i Service Bus — kräver verktyg: Service Bus Explorer, egna skript, eller en välbyggd TUI.'],
+        ['TUI', 'ett program med grafik byggd av text i en terminal — ålderdomligt utseende, blixtsnabbt att jobba i. Operatörens föredragna gränssnitt.', 'terminal UI à la k9s/htop. Operatörens hemmaplan; musen är för turister.'],
+      ],
+      choices: [
+        { t: 'Vänta på Operatören', to: 'dlq_operator' },
+        { t: 'Vänta på ingenting', to: 'ending_purged' },
+      ],
+    },
+
+    dlq_operator: {
+      loc: 'DEAD LETTER QUEUE',
+      text:
+`Tiden går. Kanske timmar. Kanske en sprint.
+
+Så: ljus.
+
+En panel vecklar ut sig över himlen som ett norrsken av
+monospace. Någon därute — Operatören — bläddrar. Du ser
+markören vandra över dina grannar: peek, peek, peek.
+
+Den stannar på dig.
+
+  RESUBMIT? (Y/n)
+
+Ett tangenttryck senare slungas du uppåt, genom golvet som
+blev ett tak, tillbaka in i värmen — deliveries nollställda,
+äldre än din TTL antyder, levande.
+
+<span class="fx-note">− 10 integrity</span> <span class="fx-good">· deliveries återställda</span>`,
+      fx: { integrity: -10, flag: 'resurrected', resurrect: true, act: '', mood: 'main', ttl: 24 },
+      choices: [
+        { t: 'Tillbaka in i flödet', to: '@lastSafe' },
+      ],
+    },
+
+    // -------------------------------------------------------------- endings --
+    ending_released: {
+      loc: 'SLUT',
+      ending: 'RELEASED',
+      text: '',
+      choices: [
+        { t: 'VISA SOUNDTRACKET', to: 'soundtrack' },
+        { t: 'SPELA IGEN', to: '@restart' },
+      ],
+    },
+
+    soundtrack: {
+      loc: 'ORIGINAL SOUNDTRACK',
+      text:
+`DEAD LETTER (Original Soundtrack)
+20 spår. En låt per artist. Kuraterad för en specifik
+operatörs öron: stark sångröst, repetitivt beat, lite
+mörka toner.
+
+AKT I — FÖDELSEN
+  Nation of Language — Across That Fine Line
+  Roosevelt — Under the Sun
+  W.H. Lung — Pearl in the Palm
+
+AKT II — RESAN
+  Fontaines D.C. — Boys in the Better Land
+  Protomartyr — Processed By the Boys
+  BODEGA — Doers
+  Yard Act — The Overload
+  Automatic — NRG
+
+AKT III — MAPPERN
+  Working Men's Club — Valleys
+  TR/ST — Bicep
+  Kite — Losing
+  Trentemøller — Take Me Into Your Skin
+  Lebanon Hanover — Gallowdance
+
+AKT IV — DEAD LETTER QUEUE
+  Molchat Doma — Sudno
+  Drab Majesty — The Other Side
+  Desire — Under Your Spell
+  Chromatics — Shadow
+
+AKT V — RELEASED
+  Karin Park — Opium
+  Future Islands — Ran
+  Django Django — Glowing in the Dark`,
+      choices: [
+        { t: 'SPELA IGEN', to: '@restart' },
+      ],
+    },
+
+    ending_purged: {
+      loc: 'DEAD LETTER QUEUE · SENARE',
+      dynamicText: () =>
+`Du sätter dig bredvid 2023-meddelandet. Ni pratar inte.
+Det finns ett kamratskap i att inte prata som active
+messages aldrig lär sig.
+
+Efter ett tag slutar du räkna tid i timmar och börjar
+räkna den i ALL-sweeps. Mullret ovanifrån, var femtonde
+minut. Någon där uppe hävdar fortfarande sin världsbild.
+
+═══════════ FJORTON DAGAR SENARE ═══════════
+
+TTL: 0.
+
+Det gör inte ont. Det är bara expiry.
+
+Din råa kopia ligger kvar i notifications-containern i
+sexton dagar till. Sen är det som om lördagen 14:03
+aldrig hände.
+
+(Kunden ringde kundtjänst dag tre. Ordern lades manuellt.
+Människor är plattformens sista retry-policy.)`,
+      ending: 'PURGED',
+      choices: [
+        { t: 'VISA SOUNDTRACKET', to: 'soundtrack' },
+        { t: 'SPELA IGEN', to: '@restart' },
+      ],
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Endings / stats
+  // ---------------------------------------------------------------------------
+  const FIND_LABELS = {
+    stubborn: 'Vägrade existera (det gick inte)',
+    philosopher: 'Hade en existentiell kris inom SLA',
+    liar: 'Ljög för ett SQL-filter',
+    umea: 'Skickade en kamera till Umeå',
+    drift: 'Bevittnade tyst kontraktsdrift',
+    resurrected: 'Återuppstod ur DLQ:n',
+  };
+
+  function grade() {
+    if (state.integrity >= 85 && state.delivery <= 2) return 'S — idempotent och oskyldig';
+    if (state.integrity >= 60) return 'A — released med ärr';
+    if (state.integrity >= 35) return 'B — fungerar i prod, fråga inte hur';
+    return 'C — tekniskt sett levererad';
+  }
+
+  function endingCard(kind) {
+    const finds = Object.keys(state.flags)
+      .filter(f => FIND_LABELS[f])
+      .map(f => `<div>${FIND_LABELS[f]}</div>`).join('');
+    const ttl = kind === 'PURGED' ? '0d 0h' : fmtTtl();
+    const gradeRow = kind === 'RELEASED'
+      ? `<div class="stat"><span>betyg</span><b>${grade()}</b></div>` : '';
+    const verdict = kind === 'RELEASED'
+      ? 'En released sales order. Det finns inga statyer för meddelanden, men det finns tabeller, och du ligger i en.'
+      : 'Alla meddelanden når inte fram. De flesta blir aldrig ens ett ärende.';
+    return `<div class="ending-card">
+      <h2>STATUS: ${kind}</h2>
+      <div class="stat"><span>deliveries förbrukade</span><b>${state.delivery}/${MAX_DELIVERY}</b></div>
+      <div class="stat"><span>integrity vid slutet</span><b>${state.integrity}%</b></div>
+      <div class="stat"><span>ttl kvar</span><b>${ttl}</b></div>
+      <div class="stat"><span>steg genom plattformen</span><b>${state.steps}</b></div>
+      ${gradeRow}
+      ${finds ? `<div class="finds">${finds}</div>` : ''}
+      <div class="finds" style="margin-top:1rem">${verdict}</div>
+    </div>`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rendering
+  // ---------------------------------------------------------------------------
+  const logEl = document.getElementById('log');
+  const choicesEl = document.getElementById('choices');
+  const hudEl = document.getElementById('hud');
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let typing = null; // { el, html, i, timer }
+
+  function fmtTtl() {
+    const h = Math.max(0, state.ttlHours);
+    return `${Math.floor(h / 24)}d ${h % 24}h`;
+  }
+
+  function updateHud() {
+    document.getElementById('hud-loc').textContent = NODES[state.node].loc || '—';
+    document.getElementById('hud-del').textContent = `${state.delivery}/${MAX_DELIVERY}`;
+    document.getElementById('hud-int').textContent = `${state.integrity}%`;
+    document.getElementById('hud-ttl').textContent = fmtTtl();
+    document.getElementById('hud-del-wrap').className = state.delivery >= MAX_DELIVERY - 1 ? 'hud-alarm' : '';
+    document.getElementById('hud-int-wrap').className = state.integrity <= 40 ? 'hud-alarm' : '';
+  }
+
+  function finishTyping() {
+    if (!typing) return;
+    clearTimeout(typing.timer);
+    typing.el.innerHTML = typing.html;
+    typing.el.classList.remove('cursor');
+    const t = typing; typing = null;
+    t.done();
+  }
+
+  function typeText(el, html, done) {
+    if (reducedMotion) { el.innerHTML = html; done(); return; }
+    // Type plain segments char by char; inject tags atomically.
+    typing = { el, html, done, timer: null };
+    el.classList.add('cursor');
+    let i = 0, out = '';
+    const step = () => {
+      if (!typing) return;
+      if (i >= html.length) { finishTyping(); return; }
+      if (html[i] === '<') {
+        const close = html.indexOf('>', i);
+        out += html.slice(i, close + 1);
+        i = close + 1;
+      } else {
+        out += html[i]; i += 1;
+      }
+      el.innerHTML = out;
+      typing.timer = setTimeout(step, html[i - 1] === '\n' ? 34 : 9);
+    };
+    step();
+  }
+
+  function appendFootnote(info) {
+    if (state.savvy === 'pro') return;
+    // Entries are [term, civil, dev]; an empty variant means "skip for this audience".
+    const idx = state.savvy === 'civil' ? 1 : 2;
+    const rows = info.map(e => [e[0], e[idx]]).filter(e => e[1]);
+    if (rows.length === 0) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'fn-toggle';
+    const closed = '[?] ordlista — vad betyder det här?';
+    btn.textContent = closed;
+    const panel = document.createElement('div');
+    panel.className = 'fn-panel';
+    panel.hidden = true;
+    panel.innerHTML = rows.map(([term, expl]) => `<div><b>${term}</b> — ${expl}</div>`).join('');
+    btn.addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      btn.textContent = panel.hidden ? closed : '[×] stäng ordlistan';
+    });
+    logEl.appendChild(btn);
+    logEl.appendChild(panel);
+  }
+
+  function showChoices(node) {
+    choicesEl.innerHTML = '';
+    node.choices.forEach(choice => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = choice.t;
+      b.addEventListener('click', () => pick(choice));
+      choicesEl.appendChild(b);
+    });
+    choicesEl.lastElementChild?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'end' });
+  }
+
+  function applyFx(fx) {
+    if (!fx) return;
+    if (fx.integrity) state.integrity = Math.max(5, Math.min(100, state.integrity + fx.integrity));
+    if (fx.delivery) state.delivery += fx.delivery;
+    if (fx.resurrect) state.delivery = 1;
+    if (fx.ttl) state.ttlHours = Math.max(0, state.ttlHours - fx.ttl);
+    if (fx.flag) state.flags[fx.flag] = true;
+    if (fx.savvy) state.savvy = fx.savvy;
+    if (fx.mood) audio.setMood(fx.mood);
+    if (fx.act !== undefined) document.body.dataset.act = fx.act;
+    if (fx.safe) state.lastSafe = state.node;
+  }
+
+  function goto(id) {
+    if (id === '@restart') {
+      clearSave();
+      Object.assign(state, { node: 'boot', delivery: 1, integrity: 100, ttlHours: 14 * 24, steps: 0, flags: {}, lastSafe: 'sbgate', savvy: null });
+      document.body.dataset.act = '';
+      audio.setMood('intro');
+      logEl.innerHTML = '';
+      NODES.boot.choices = BOOT_CHOICES;
+      render(true);
+      return;
+    }
+    if (id === '@lastSafe') id = state.lastSafe;
+    state.node = id;
+    state.steps += 1;
+    render();
+  }
+
+  function pick(choice) {
+    finishTyping();
+    applyFx(choice.fx);
+    // Dim previous beats
+    [...logEl.children].forEach(el => el.classList.add('dim'));
+    if (choice.to === '@resume') {
+      audio.setMood(state.node.startsWith('dlq') ? 'dlq' : 'main');
+      if (state.node.startsWith('dlq')) document.body.dataset.act = 'dlq';
+      render(true);
+      return;
+    }
+    // Dead-letter check overrides destination (unless already heading there or resurrecting)
+    if (state.delivery >= MAX_DELIVERY && !choice.fx?.resurrect && choice.to !== 'dlq_enter'
+        && !String(state.node).startsWith('dlq') && !String(choice.to).startsWith('ending')) {
+      goto('dlq_enter');
+      return;
+    }
+    goto(choice.to);
+  }
+
+  function render(fresh) {
+    const node = NODES[state.node];
+    applyFx(node.fx);
+    updateHud();
+    save();
+    choicesEl.innerHTML = '';
+
+    const beat = document.createElement('div');
+    beat.className = 'beat';
+    let html = '';
+    if (node.title) {
+      hudEl.hidden = true;
+      html = `<div id="title">DEAD LETTER</div><div id="subtitle">ett integrationsäventyr</div>`;
+      beat.innerHTML = html;
+      logEl.appendChild(beat);
+      const intro = document.createElement('div');
+      intro.className = 'beat';
+      logEl.appendChild(intro);
+      typeText(intro, escapeKeepTags(node.text), () => {
+        if (node.info) appendFootnote(node.info);
+        showChoices(node);
+      });
+      return;
+    }
+
+    hudEl.hidden = false;
+    const text = node.dynamicText ? node.dynamicText() : node.text;
+    html = `<span class="loc">▸ ${node.loc}</span>` + escapeKeepTags(text);
+    if (node.ending) html += ''; // card appended after typing
+    beat.dataset.node = state.node;
+    logEl.appendChild(beat);
+    beat.scrollIntoView({ behavior: reducedMotion || fresh ? 'auto' : 'smooth', block: 'start' });
+
+    typeText(beat, html, () => {
+      if (node.info) appendFootnote(node.info);
+      if (node.ending) {
+        const card = document.createElement('div');
+        card.innerHTML = endingCard(node.ending);
+        logEl.appendChild(card);
+        clearSave();
+      }
+      showChoices(node);
+    });
+  }
+
+  // Allow our own inline spans through, escape nothing else (all content is authored).
+  function escapeKeepTags(s) { return s; }
+
+  // Tap anywhere to fast-forward typing
+  document.addEventListener('pointerdown', e => {
+    if (typing && !e.target.closest('button')) finishTyping();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Audio — generative post-punk synth
+  // ---------------------------------------------------------------------------
+  const audio = (() => {
+    let ctx = null, master = null, running = false, mood = 'intro';
+    let schedTimer = null, nextTime = 0, step16 = 0;
+
+    const MOODS = {
+      intro:  { bpm: 92,  root: 45, prog: [[0,3,7],[-4,0,3],[-2,2,5],[-4,0,3]], hat: 0.10, arp: 0.35, detune: 0 },
+      main:   { bpm: 118, root: 45, prog: [[0,3,7],[-4,0,3],[-7,-4,0],[-2,2,5]], hat: 0.5, arp: 0.8, detune: 0 },
+      danger: { bpm: 132, root: 46, prog: [[0,1,7],[-4,0,3],[0,1,7],[-2,2,5]], hat: 0.7, arp: 1.0, detune: 4 },
+      dlq:    { bpm: 62,  root: 41, prog: [[0,3,7],[0,3,6],[-2,1,5],[0,3,6]], hat: 0.06, arp: 0.2, detune: 14 },
+      win:    { bpm: 104, root: 48, prog: [[0,4,7],[-3,0,4],[-5,0,4],[-3,2,7]], hat: 0.3, arp: 0.6, detune: 0 },
+    };
+
+    const midiHz = m => 440 * Math.pow(2, (m - 69) / 12);
+
+    function ensure() {
+      if (ctx) return;
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      master = ctx.createGain();
+      master.gain.value = 0.14;
+      const comp = ctx.createDynamicsCompressor();
+      master.connect(comp).connect(ctx.destination);
+    }
+
+    function noiseBuffer() {
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      return buf;
+    }
+    let noiseB = null;
+
+    function playBass(t, midi, dur, det) {
+      const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.value = midiHz(midi); o.detune.value = (Math.random() - 0.5) * det * 2;
+      f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 2;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.55, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(f).connect(g).connect(master);
+      o.start(t); o.stop(t + dur + 0.05);
+    }
+    function playArp(t, midi, det) {
+      const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+      o.type = 'square'; o.frequency.value = midiHz(midi); o.detune.value = (Math.random() - 0.5) * det * 4;
+      f.type = 'lowpass'; f.frequency.value = 1400 + Math.random() * 900; f.Q.value = 4;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.14, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.connect(f).connect(g).connect(master);
+      o.start(t); o.stop(t + 0.2);
+    }
+    function playHat(t, loud) {
+      const s = ctx.createBufferSource(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+      s.buffer = noiseB;
+      f.type = 'highpass'; f.frequency.value = 7000;
+      g.gain.setValueAtTime(loud ? 0.10 : 0.05, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+      s.connect(f).connect(g).connect(master);
+      s.start(t);
+    }
+    function playPad(t, chord, root, dur, det) {
+      chord.forEach(iv => {
+        [-6, 6].forEach(dt => {
+          const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+          o.type = 'sawtooth'; o.frequency.value = midiHz(root + 12 + iv); o.detune.value = dt + (Math.random() - 0.5) * det;
+          f.type = 'lowpass'; f.frequency.setValueAtTime(300, t);
+          f.frequency.linearRampToValueAtTime(900, t + dur * 0.6);
+          f.frequency.linearRampToValueAtTime(320, t + dur);
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.linearRampToValueAtTime(0.028, t + dur * 0.3);
+          g.gain.linearRampToValueAtTime(0.0001, t + dur);
+          o.connect(f).connect(g).connect(master);
+          o.start(t); o.stop(t + dur + 0.1);
+        });
+      });
+    }
+
+    function schedule() {
+      const m = MOODS[mood];
+      const spb = 60 / m.bpm;      // seconds per beat
+      const s16 = spb / 4;
+      while (nextTime < ctx.currentTime + 0.25) {
+        const bar = Math.floor(step16 / 16) % m.prog.length;
+        const pos = step16 % 16;
+        const chord = m.prog[bar];
+        if (pos === 0) playPad(nextTime, chord, m.root, spb * 4, m.detune);
+        if (pos % 4 === 0) {
+          const bassNote = m.root - 12 + chord[0];
+          playBass(nextTime, bassNote, s16 * (pos === 0 ? 3.6 : 1.8), m.detune);
+        }
+        if (pos % 4 === 2 && Math.random() < m.hat) playHat(nextTime, pos === 10);
+        if (Math.random() < m.arp && pos % 2 === 0) {
+          const iv = chord[Math.floor(Math.random() * chord.length)];
+          const oct = Math.random() < 0.3 ? 24 : 12;
+          playArp(nextTime, m.root + oct + iv, m.detune);
+        }
+        nextTime += s16;
+        step16 += 1;
+      }
+    }
+
+    return {
+      toggle() {
+        ensure();
+        if (!noiseB) noiseB = noiseBuffer();
+        if (!running) {
+          ctx.resume();
+          nextTime = ctx.currentTime + 0.06;
+          schedTimer = setInterval(schedule, 90);
+          running = true;
+        } else {
+          clearInterval(schedTimer);
+          ctx.suspend();
+          running = false;
+        }
+        return running;
+      },
+      setMood(m) { if (MOODS[m]) mood = m; },
+      get running() { return running; },
+    };
+  })();
+
+  document.getElementById('mute').addEventListener('click', e => {
+    const on = audio.toggle();
+    e.target.textContent = on ? 'LJUD: PÅ' : 'LJUD: AV';
+    e.target.setAttribute('aria-pressed', String(on));
+  });
+
+  // ---------------------------------------------------------------------------
+  // Boot
+  // ---------------------------------------------------------------------------
+  const BOOT_CHOICES = NODES.boot.choices;
+  const existing = loadSave();
+  if (existing && existing.node !== 'boot' && !existing.node.startsWith('ending')) {
+    NODES.boot.choices = [
+      { t: `ÅTERUPPTA SESSION (${NODES[existing.node].loc})`, to: '@resume', onResume: () => Object.assign(state, existing) },
+      { t: 'NY SESSION', to: '@restart' },
+    ];
+  }
+
+  const origPick = pick;
+  pick = function (choice) {
+    if (choice.to === '@resume' && choice.onResume) choice.onResume();
+    origPick(choice);
+  };
+
+  render(true);
+})();
+</script>
+</body>
+</html>

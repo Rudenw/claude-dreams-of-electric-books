@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book Atlas</title>
+<style>
+  :root {
+    --ground: #0a0d18;
+    --ground-2: #101527;
+    --ink: #e9e4d3;
+    --ink-dim: #98937f;
+    --ink-faint: #4a4a52;
+    --line: #2a3050;
+    --sf: #5fd3c4;
+    --fantasy: #b08ae8;
+    --krim: #e86a6a;
+    --skrack: #9fd66b;
+    --litterart: #e8c05f;
+    --historia: #e89a5f;
+    --romantik: #e87fae;
+    --thriller: #f0b03c;
+    --fakta: #8fb3d9;
+    --serif: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+    --sans: 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 30% 20%, #0e1224 0%, var(--ground) 60%);
+    color: var(--ink);
+    font-family: var(--sans);
+    overflow: hidden;
+  }
+  #app { display: flex; height: 100vh; height: 100dvh; }
+  #mapwrap { flex: 1; position: relative; min-width: 0; }
+  svg#map { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  svg#map.dragging { cursor: grabbing; }
+
+  /* --- header --- */
+  #hdr {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: 0.9rem 1.2rem 2rem;
+    background: linear-gradient(to bottom, rgba(10,13,24,0.92) 30%, transparent);
+    pointer-events: none;
+    z-index: 2;
+  }
+  #hdr h1 {
+    margin: 0;
+    font-family: var(--serif);
+    font-size: 1.5rem;
+    font-weight: 400;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+  }
+  #hdr .sub {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    color: var(--ink-dim);
+    margin-top: 0.25rem;
+  }
+  #controls {
+    position: absolute; top: 0.9rem; right: 1.2rem;
+    display: flex; gap: 0.5rem;
+    z-index: 3;
+  }
+  #search {
+    background: var(--ground-2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    padding: 0.45rem 0.7rem;
+    width: 15rem;
+    max-width: 42vw;
+    border-radius: 2px;
+  }
+  #search::placeholder { color: var(--ink-faint); }
+  #search:focus { outline: 1px solid var(--ink-dim); }
+  #rndbtn {
+    background: var(--ground-2);
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    padding: 0.45rem 0.8rem;
+    cursor: pointer;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  #rndbtn:hover, #rndbtn:focus-visible { color: var(--ink); border-color: var(--ink-dim); outline: none; }
+  #results {
+    position: absolute; top: 3.1rem; right: 1.2rem;
+    background: var(--ground-2);
+    border: 1px solid var(--line);
+    max-height: 45vh; overflow-y: auto;
+    width: 22rem; max-width: 88vw;
+    z-index: 4;
+    border-radius: 2px;
+  }
+  #results:empty { display: none; }
+  #results button {
+    display: block; width: 100%;
+    text-align: left;
+    background: none; border: none;
+    border-bottom: 1px solid rgba(42,48,80,0.5);
+    color: var(--ink);
+    font-family: var(--sans); font-size: 0.82rem;
+    padding: 0.5rem 0.7rem;
+    cursor: pointer;
+  }
+  #results button:hover, #results button:focus-visible { background: rgba(255,255,255,0.05); outline: none; }
+  #results .hint { color: var(--ink-dim); font-size: 0.72rem; }
+
+  /* --- legend --- */
+  #legend {
+    position: absolute; bottom: 0.8rem; left: 1.2rem;
+    display: flex; flex-wrap: wrap; gap: 0.3rem 1rem;
+    font-size: 0.68rem; letter-spacing: 0.1em;
+    color: var(--ink-dim);
+    z-index: 2;
+    max-width: 70%;
+    pointer-events: none;
+  }
+  #legend span::before {
+    content: "✦ ";
+    color: var(--c);
+  }
+
+  /* --- svg pieces --- */
+  .const-label {
+    font-family: var(--serif);
+    fill: rgba(233,228,211,0.07);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .edge { stroke: var(--line); stroke-width: 1; fill: none; opacity: 0.55; }
+  .edge.lit { stroke: var(--ink-dim); opacity: 1; stroke-width: 1.5; }
+  .star { cursor: pointer; }
+  .star circle.core { transition: r 0.15s ease; }
+  .star circle.halo { opacity: 0.22; }
+  .star.sel circle.core { stroke: var(--ink); stroke-width: 1.5; }
+  .star text {
+    font-family: var(--sans);
+    font-size: 13px;
+    fill: var(--ink-dim);
+    pointer-events: none;
+  }
+  .star.sel text, .star.lit text { fill: var(--ink); }
+  .dust { fill: #565d78; }
+
+  /* --- panel --- */
+  #panel {
+    width: 24rem;
+    max-width: 30vw;
+    background: var(--ground-2);
+    border-left: 1px solid var(--line);
+    padding: 1.3rem 1.3rem 2rem;
+    overflow-y: auto;
+    display: none;
+    flex-shrink: 0;
+  }
+  #panel.open { display: block; }
+  #panel .chip {
+    display: inline-block;
+    font-size: 0.66rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ground);
+    background: var(--c, var(--ink-dim));
+    padding: 0.15rem 0.5rem;
+    border-radius: 2px;
+    margin-bottom: 0.7rem;
+  }
+  #panel h2 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 1.55rem;
+    margin: 0 0 0.7rem;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  #panel .blurb {
+    font-size: 0.9rem;
+    line-height: 1.65;
+    color: var(--ink);
+    margin-bottom: 1.3rem;
+    max-width: 60ch;
+  }
+  #panel h3 {
+    font-size: 0.68rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin: 1.4rem 0 0.5rem;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 0.3rem;
+  }
+  #panel ul { list-style: none; margin: 0; padding: 0; }
+  #panel .books li {
+    font-size: 0.86rem;
+    padding: 0.22rem 0;
+    line-height: 1.45;
+  }
+  #panel .books i { color: var(--ink-dim); font-style: normal; }
+  #panel .adj button {
+    display: block; width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-bottom: 1px dashed rgba(42,48,80,0.6);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 0.84rem;
+    line-height: 1.5;
+    padding: 0.5rem 0;
+    cursor: pointer;
+  }
+  #panel .adj button:hover, #panel .adj button:focus-visible { color: #fff; outline: none; }
+  #panel .adj .why { color: var(--ink-dim); font-size: 0.78rem; display: block; }
+  #panel .adj b { font-weight: 600; }
+  #panel .adj b::before { content: "→ "; color: var(--c, var(--ink-dim)); }
+  #closepanel {
+    float: right;
+    background: none; border: none;
+    color: var(--ink-dim);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0 0 0.4rem 0.6rem;
+  }
+  #closepanel:hover { color: var(--ink); }
+
+  /* --- intro hint --- */
+  #hint {
+    position: absolute; bottom: 2.6rem; left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.78rem;
+    color: var(--ink-dim);
+    letter-spacing: 0.08em;
+    background: rgba(16,21,39,0.85);
+    border: 1px solid var(--line);
+    padding: 0.4rem 0.9rem;
+    border-radius: 2px;
+    z-index: 2;
+    pointer-events: none;
+    transition: opacity 0.6s ease;
+  }
+  #hint.gone { opacity: 0; }
+
+  /* --- mobile --- */
+  @media (max-width: 720px) {
+    #app { flex-direction: column; }
+    #panel {
+      width: 100%; max-width: none;
+      border-left: none; border-top: 1px solid var(--line);
+      max-height: 46vh;
+    }
+    #hdr h1 { font-size: 1.05rem; }
+    #controls { top: auto; bottom: 0.8rem; right: 0.8rem; left: 0.8rem; }
+    #search { flex: 1; width: auto; max-width: none; }
+    #results { top: auto; bottom: 3.2rem; right: 0.8rem; left: 0.8rem; width: auto; }
+    #legend { display: none; }
+    #hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="mapwrap">
+    <div id="hdr">
+      <h1>Book Atlas</h1>
+      <div class="sub">if you like X, try Y — an opinionated star chart of literature</div>
+    </div>
+    <div id="controls">
+      <input id="search" type="search" placeholder="genre, title or author..." autocomplete="off">
+      <button id="rndbtn" type="button">✦ random</button>
+    </div>
+    <div id="results"></div>
+    <svg id="map" viewBox="0 0 2000 1500" preserveAspectRatio="xMidYMid meet" aria-label="Star chart of literary genres"></svg>
+    <div id="legend"></div>
+    <div id="hint">drag to explore · scroll/pinch to zoom · tap a star</div>
+  </div>
+  <aside id="panel" aria-live="polite"></aside>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const GROUPS = {
+    sf:        { name: 'Science fiction',    color: 'var(--sf)',        hex: '#5fd3c4' },
+    fantasy:   { name: 'Fantasy',            color: 'var(--fantasy)',   hex: '#b08ae8' },
+    krim:      { name: 'Crime',              color: 'var(--krim)',      hex: '#e86a6a' },
+    skrack:    { name: 'Horror',             color: 'var(--skrack)',    hex: '#9fd66b' },
+    litterart: { name: 'Literary',           color: 'var(--litterart)', hex: '#e8c05f' },
+    historia:  { name: 'History & adventure', color: 'var(--historia)', hex: '#e89a5f' },
+    romantik:  { name: 'Romance',            color: 'var(--romantik)',  hex: '#e87fae' },
+    thriller:  { name: 'Thrillers',          color: 'var(--thriller)',  hex: '#f0b03c' },
+    fakta:     { name: 'Nonfiction Island',  color: 'var(--fakta)',     hex: '#8fb3d9' },
+  };
+
+  const CONST_LABELS = [
+    { text: 'Science fiction', x: 380,  y: 320,  size: 74 },
+    { text: 'Fantasy',         x: 1010, y: 280,  size: 84 },
+    { text: 'Horror',          x: 1610, y: 300,  size: 72 },
+    { text: 'Literary',        x: 1030, y: 800,  size: 84 },
+    { text: 'Crime',           x: 1650, y: 780,  size: 84 },
+    { text: 'History',         x: 390,  y: 900,  size: 66 },
+    { text: 'Romance',         x: 1000, y: 1240, size: 64 },
+    { text: 'Thrillers',       x: 1660, y: 1200, size: 60 },
+    { text: 'Nonfiction',      x: 350,  y: 1300, size: 56 },
+  ];
+
+  const GENRES = [];
+  // ==== DATA:SF ====
+  GENRES.push(
+    { id: 'rymdopera', name: 'Space opera', c: 'sf', x: 355, y: 175,
+      blurb: 'Galactic empires, ships the size of cities, feelings the size of ships. Space opera spent decades being embarrassing — chrome jaws, green women — and then quietly became the genre where SF keeps its best political writing. Banks was the peak and he’s gone, so we make do.',
+      books: [['Ancillary Justice', 'Ann Leckie'], ['A Memory Called Empire', 'Arkady Martine'], ['Hyperion', 'Dan Simmons'], ['The Long Way to a Small, Angry Planet', 'Becky Chambers']],
+      links: [['hard-sf', 'same vacuum, but someone did the math'], ['militar-sf', 'swap the diplomats for marines'], ['first-contact', 'when the empire meets something it can’t colonize']] },
+    { id: 'hard-sf', name: 'Hard SF', c: 'sf', x: 185, y: 265,
+      blurb: 'SF where the physics is the protagonist and the humans are measuring equipment. Nobody here dies of a broken hyperdrive without a full delta-v budget explaining why. The prose is frequently terrible and the ideas frequently sublime, and hard SF readers have made their peace with that exchange rate. Weir writes spreadsheets with jokes; it works, don’t ask how.',
+      books: [['The Martian', 'Andy Weir'], ['Rendezvous with Rama', 'Arthur C. Clarke'], ['The Three-Body Problem', 'Cixin Liu'], ['Seveneves', 'Neal Stephenson']],
+      links: [['first-contact', 'first contact, but the orbital mechanics check out'], ['klimatfiktion', 'same respect for systems, uncomfortably closer to home']] },
+    { id: 'militar-sf', name: 'Military SF', c: 'sf', x: 545, y: 150,
+      blurb: 'War in space, written by people who either did the job or really wish they had — and you can always tell which. At its best it’s about obedience and what violence does to people; at its worst it’s a weapons catalogue with dialogue. The dirty secret: the best books here are anti-war novels wearing the uniform. Heinlein started an argument in 1959 that the genre still hasn’t finished.',
+      books: [['The Forever War', 'Joe Haldeman'], ['Starship Troopers', 'Robert A. Heinlein'], ['Old Man’s War', 'John Scalzi'], ['Use of Weapons', 'Iain M. Banks']],
+      links: [['krigsroman', 'same mud, no spaceships to hide behind']] },
+    { id: 'cyberpunk', name: 'Cyberpunk', c: 'sf', x: 300, y: 390,
+      blurb: 'High tech, low life. Written as a warning, read as an interior design catalogue, and now functionally a documentary — we built the dystopia and skipped the cool jackets. Gibson wrote Neuromancer on a typewriter without knowing how computers work, which explains why it’s aged better than the books that did.',
+      books: [['Neuromancer', 'William Gibson'], ['Snow Crash', 'Neal Stephenson'], ['Do Androids Dream of Electric Sheep?', 'Philip K. Dick'], ['Altered Carbon', 'Richard Morgan']],
+      links: [['biopunk', 'same gutter, DNA instead of decks'], ['dystopi', 'remove the neon, keep the surveillance'], ['noir', 'it’s literally the hardboiled detective in a chrome raincoat'], ['technothriller', 'same tech, except the state is the hero — imagine that']] },
+    { id: 'biopunk', name: 'Biopunk', c: 'sf', x: 455, y: 460,
+      blurb: 'Cyberpunk’s wetter sibling: gene-hacking, patented organisms, evolution as a market. Where cyberpunk smells like ozone, biopunk smells like fermentation. It’s the less popular branch because it’s the more plausible one, and nobody wants to hang a poster of that.',
+      books: [['The Windup Girl', 'Paolo Bacigalupi'], ['Oryx and Crake', 'Margaret Atwood'], ['Borne', 'Jeff VanderMeer'], ['Blood Music', 'Greg Bear']],
+      links: [['klimatfiktion', 'same broken biosphere, less gene splicing'], ['kroppsskrack', 'when the body stops being a metaphor']] },
+    { id: 'dystopi', name: 'Dystopia', c: 'sf', x: 600, y: 375,
+      blurb: 'Societies that went wrong in exactly the direction the author feared most — dystopia is always about its own present in a bad disguise, that’s the point. The genre has a problem: reality keeps plagiarizing it. Fun fact for the Anglosphere: Sweden’s Kallocain beat Nineteen Eighty-Four to the punch by nine years, and Orwell never sent a thank-you note.',
+      books: [['1984', 'George Orwell'], ['The Handmaid’s Tale', 'Margaret Atwood'], ['Brave New World', 'Aldous Huxley'], ['Kallocain', 'Karin Boye']],
+      links: [['postapokalyps', 'dystopia is before the crash; this is after'], ['new-wave-sf', 'same social critique, weirder methods'], ['satir', 'same targets, but grinning instead of sweating']] },
+    { id: 'postapokalyps', name: 'Post-apocalypse', c: 'sf', x: 715, y: 445,
+      blurb: 'The world ended and now we’re going to walk somewhere, slowly. The genre is never about the catastrophe — it’s about what’s worth carrying afterwards: a shopping cart, a child, a theatre troupe. McCarthy stripped it down to a father, a son and a punctuation style, and somehow that’s the one that breaks people.',
+      books: [['The Road', 'Cormac McCarthy'], ['Station Eleven', 'Emily St. John Mandel'], ['A Canticle for Leibowitz', 'Walter M. Miller Jr.'], ['I Who Have Never Known Men', 'Jacqueline Harpman']],
+      links: [['katastrofroman', 'this is that book’s epilogue'], ['klimatfiktion', 'when the cause of the ending is in the IPCC report']] },
+    { id: 'tidsresor', name: 'Time travel', c: 'sf', x: 200, y: 480,
+      blurb: 'The genre where the plot is a schedule and the schedule is broken. Every good time travel book is secretly about regret; everything else is paradox admin. Butler used it to drag a modern woman into a plantation and the result is the best time travel novel ever written, full stop, not up for debate.',
+      books: [['Kindred', 'Octavia E. Butler'], ['The Time Traveler’s Wife', 'Audrey Niffenegger'], ['This Is How You Lose the Time War', 'Amal El-Mohtar & Max Gladstone'], ['11/22/63', 'Stephen King']],
+      links: [['alternativhistoria', 'same what-if, minus the commuting'], ['romcom', 'a shockingly effective love-plot engine']] },
+    { id: 'alternativhistoria', name: 'Alternate history', c: 'sf', x: 340, y: 565,
+      blurb: 'What if one hinge of history had swung the other way — followed by merciless consequence-accounting. Half the genre is "what if the Nazis won", which says something uncomfortable about the market. The other half is where the real work happens: Roth doing fascism-comes-to-America two decades before it was a news category.',
+      books: [['The Man in the High Castle', 'Philip K. Dick'], ['The Plot Against America', 'Philip Roth'], ['Farthing', 'Jo Walton'], ['The Yiddish Policemen’s Union', 'Michael Chabon']],
+      links: [['historisk-roman', 'same research, but the facts stay where they were'], ['dystopi', 'when the alternate outcome is the worst one']] },
+    { id: 'first-contact', name: 'First contact', c: 'sf', x: 480, y: 260,
+      blurb: 'Something is out there and it does not think like us. The bad books make the alien a human in a rubber suit; the good ones let it stay incomprehensible — contact without understanding, a mirror that refuses to flatter. Lem did it best and spent the rest of his life explaining that no, you didn’t get it, not even the film adaptations, especially not the film adaptations.',
+      books: [['Solaris', 'Stanisław Lem'], ['Stories of Your Life and Others', 'Ted Chiang'], ['Blindsight', 'Peter Watts'], ['Contact', 'Carl Sagan']],
+      links: [['kosmisk-skrack', 'same encounter, hope removed at the factory'], ['new-wave-sf', 'when the contact says more about us than them']] },
+    { id: 'new-wave-sf', name: 'Social SF', c: 'sf', x: 630, y: 255,
+      blurb: 'SF that cares more about societies than ships: gender, language, power, economics, stress-tested in invented worlds. This is where the genre keeps its thinkers, and it’s also the wing that people mean when they say "I don’t read sci-fi, but—". Le Guin owns this territory so completely the other stars are basically renting.',
+      books: [['The Left Hand of Darkness', 'Ursula K. Le Guin'], ['The Dispossessed', 'Ursula K. Le Guin'], ['Parable of the Sower', 'Octavia E. Butler'], ['Embassytown', 'China Miéville']],
+      links: [['samtida-litterart', 'the border is administrative, not literary'], ['solarpunk', 'the society-building, with the lights on']] },
+    { id: 'klimatfiktion', name: 'Climate fiction', c: 'sf', x: 700, y: 555,
+      blurb: 'Novels where the weather stopped being scenery. Runs from engineering optimism to grief work, often in the same chapter. It’s the genre with the shortest distance between "speculative" and "forecast", which is why reading it feels less like escapism and more like homework you can’t fail out of.',
+      books: [['The Ministry for the Future', 'Kim Stanley Robinson'], ['Flight Behavior', 'Barbara Kingsolver'], ['The Overstory', 'Richard Powers'], ['New York 2140', 'Kim Stanley Robinson']],
+      links: [['naturskrivande', 'same grief and wonder, no fiction required'], ['samtida-litterart', 'the climate is leaking into regular novels too']] },
+    { id: 'solarpunk', name: 'Solarpunk', c: 'sf', x: 560, y: 520,
+      blurb: 'The future where we actually fixed it: solar panels, mutual aid, tea. Punk, because hope is apparently a counterculture now. Tiny genre, and yes, half of it reads like a co-op newsletter — but the other half is the only SF that lowers your blood pressure instead of confirming your doom, and that has to count for something.',
+      books: [['A Psalm for the Wild-Built', 'Becky Chambers'], ['The Dispossessed', 'Ursula K. Le Guin'], ['Walkaway', 'Cory Doctorow'], ['Sunvault (anthology)', 'ed. Wagner & Wieland']],
+      links: [['cozy-fantasy', 'same warm blanket, different wardrobe'], ['dystopi', 'its declared opposite — read both, pick a future']] },
+  );
+  // ==== DATA:FANTASY ====
+  GENRES.push(
+    { id: 'episk-fantasy', name: 'Epic fantasy', c: 'fantasy', x: 960, y: 160,
+      blurb: 'Maps in the front, family trees in the back, a darkness rising in the east. Epic fantasy is world-building as a lifestyle — readers move in permanently. One warning, learned in blood: never start an unfinished series. Rothfuss owes book three since 2011. Martin owes two since 2011. At this point The Winds of Winter is itself a fantasy.',
+      books: [['The Lord of the Rings', 'J.R.R. Tolkien'], ['The Name of the Wind', 'Patrick Rothfuss'], ['The Way of Kings', 'Brandon Sanderson'], ['A Game of Thrones', 'George R.R. Martin']],
+      links: [['grimdark', 'same war, but nobody bathes and nobody’s good'], ['sword-sorcery', 'zoom in from the map to a single sword'], ['romantasy', 'same worlds, more pulse'], ['sagor-folktro', 'the source code the epics were compiled from']] },
+    { id: 'grimdark', name: 'Grimdark', c: 'fantasy', x: 1105, y: 215,
+      blurb: 'Fantasy that read too much history: mud, cynicism, and heroes who are the villains’ HR problem. Nobody is good, several people are entertaining, everyone is filthy. Honestly, a lot of grimdark is just adolescent nihilism with a sword budget — but Abercrombie writes it with such glee that resistance is pointless.',
+      books: [['The Blade Itself', 'Joe Abercrombie'], ['Prince of Thorns', 'Mark Lawrence'], ['Beyond Redemption', 'Michael R. Fletcher'], ['The Poppy War', 'R.F. Kuang']],
+      links: [['krigsroman', 'same trenches, no magic to hide behind'], ['noir', 'same moral grayscale, fewer swords']] },
+    { id: 'sword-sorcery', name: 'Sword & sorcery', c: 'fantasy', x: 820, y: 240,
+      blurb: 'Before fantasy got family trees there was just a sword, a thief and a bad idea. Fast, physical, episodic — adventure at human scale instead of world war. It’s the genre’s rock’n’roll: technically primitive, frequently problematic (Howard has not aged gracefully, let’s be honest), and still more alive than half the doorstoppers it inspired.',
+      books: [['Conan (collected stories)', 'Robert E. Howard'], ['Fafhrd and the Gray Mouser', 'Fritz Leiber'], ['Elric of Melniboné', 'Michael Moorcock'], ['Kings of the Wyld', 'Nicholas Eames']],
+      links: [['aventyrsklassiker', 'same pulse, historical props'], ['fantasy-satir', 'this is what it lovingly makes fun of']] },
+    { id: 'urban-fantasy', name: 'Urban fantasy', c: 'fantasy', x: 1225, y: 330,
+      blurb: 'Magic moved to the city and got a lease. Witches on the subway, demons with lawyers, a protagonist working two jobs, one of them supernatural. The genre produced a thousand interchangeable leather-jacketed monster hunters and about five great books; the trick is knowing which five. Start with Aaronovitch — a police procedural where the Met has a wizard department, and it’s exactly as fun as that sounds.',
+      books: [['Neverwhere', 'Neil Gaiman'], ['Rivers of London', 'Ben Aaronovitch'], ['Storm Front (The Dresden Files)', 'Jim Butcher'], ['The City We Became', 'N.K. Jemisin']],
+      links: [['spokhistorier', 'same city, but the supernatural isn’t your friend'], ['nordic-noir', 'swap the demons for social decay — same rainy streets']] },
+    { id: 'cozy-fantasy', name: 'Cozy fantasy', c: 'fantasy', x: 890, y: 350,
+      blurb: 'Fantasy where the stakes are a café, a friendship, a decent cup of tea. Nothing ends; someone comes home. Sneered at by people who confuse darkness with depth, and devoured by everyone with a functioning nervous system and a job. Legends & Lattes is literally about an orc opening a coffee shop, and it outsold most of the grimdark shelf. Draw your own conclusions about the state of the world.',
+      books: [['Legends & Lattes', 'Travis Baldree'], ['The House in the Cerulean Sea', 'TJ Klune'], ['A Psalm for the Wild-Built', 'Becky Chambers'], ['Howl’s Moving Castle', 'Diana Wynne Jones']],
+      links: [['feelgood', 'the same warm blanket, no magic'], ['portalfantasy', 'a door to the safe place instead of the dangerous one']] },
+    { id: 'mytiska-omdiktningar', name: 'Myth retellings', c: 'fantasy', x: 1055, y: 400,
+      blurb: 'Old myths, new narrator — usually someone who stood in the margins last time. Circe gets the mic, Patroclus gets the love story, the monsters get motives. Yes, the market is currently flooded with "[Greek woman]: A Novel" cash-ins, but when Miller does it, three-thousand-year-old material reads like it was written for you personally, this week.',
+      books: [['Circe', 'Madeline Miller'], ['The Song of Achilles', 'Madeline Miller'], ['Piranesi', 'Susanna Clarke'], ['The Silence of the Girls', 'Pat Barker']],
+      links: [['klassiker', 'the originals are right over there, looking flattered'], ['sagor-folktro', 'same method, applied to folklore'], ['magisk-realism', 'when the myth sneaks into the present instead']] },
+    { id: 'sagor-folktro', name: 'Fairy tales & folklore', c: 'fantasy', x: 940, y: 485,
+      blurb: 'The forest is dark, the promise is binding, and the price is always higher than advertised. This genre remembers what folklore knew before Disney hosed it down: wonders are dangerous. Novik writes fairy tales the way they were meant to work — beautiful on the surface, teeth all the way down.',
+      books: [['Uprooted', 'Naomi Novik'], ['The Bear and the Nightingale', 'Katherine Arden'], ['Stardust', 'Neil Gaiman'], ['Spinning Silver', 'Naomi Novik']],
+      links: [['folk-horror', 'same forest, except it wins'], ['historisk-romantik', 'swap the creatures for dance cards — same longing']] },
+    { id: 'portalfantasy', name: 'Portal fantasy', c: 'fantasy', x: 790, y: 430,
+      blurb: 'A wardrobe, a ticket, a door that wasn’t there yesterday. Portal fantasy is reading’s own autobiography — someone leaves a grey world for a bright one and then has to choose. The adult versions ask the cruel follow-up: what happens when you come back and the door won’t open again. Grossman answered it with The Magicians, a book for everyone who loved Narnia and then grew up and got depressed about it.',
+      books: [['The Ten Thousand Doors of January', 'Alix E. Harrow'], ['Every Heart a Doorway', 'Seanan McGuire'], ['The Lion, the Witch and the Wardrobe', 'C.S. Lewis'], ['The Magicians', 'Lev Grossman']],
+      links: [['bildningsroman', 'the same journey without the portal — the world is enough'], ['episk-fantasy', 'what the portal usually leads to']] },
+    { id: 'fantasy-satir', name: 'Comic fantasy', c: 'fantasy', x: 1150, y: 120,
+      blurb: 'Fantasy that discovered dragons are funnier with a tax office. Let’s be clear: this genre is 95% unbearable — puns wearing a plot — and then there’s Pratchett, who used a flat world on four elephants to say truer things about people than most Nobel laureates manage. Start anywhere. Stay forever. Mind the elephants.',
+      books: [['Guards! Guards!', 'Terry Pratchett'], ['Mort', 'Terry Pratchett'], ['Good Omens', 'Terry Pratchett & Neil Gaiman'], ['The Princess Bride', 'William Goldman']],
+      links: [['satir', 'same knives, aimed at our world without the costume'], ['episk-fantasy', 'the target, which it genuinely loves']] },
+    { id: 'weird-fiction', name: 'Weird fiction', c: 'fantasy', x: 1330, y: 235,
+      blurb: 'The genre that refuses to choose between fantasy, SF and horror, and therefore unsettles all three. Cities that dream, fungi with agendas, bureaucracies from the far side. Miéville writes like a man being paid by the invented word — and Annihilation does in 200 pages what most trilogies can’t do in 2000: make you afraid of a lighthouse.',
+      books: [['Annihilation', 'Jeff VanderMeer'], ['Perdido Street Station', 'China Miéville'], ['The City & the City', 'China Miéville'], ['Vita Nostra', 'Marina & Sergey Dyachenko']],
+      links: [['kosmisk-skrack', 'the neighbor who never blinks'], ['postmodernism', 'same rule-breaking, in seminar rooms']] },
+    { id: 'magisk-realism', name: 'Magical realism', c: 'fantasy', x: 1120, y: 555,
+      blurb: 'It rains flowers and nobody in the village raises an eyebrow. The magic isn’t a system, it’s a way of telling the truth about memory, grief and family when realism runs out of vocabulary. Borderland between fantasy and literary — duty-free in both directions. And no, Murakami’s disappearing cats don’t count as a plot; they never did, and we read him anyway.',
+      books: [['One Hundred Years of Solitude', 'Gabriel García Márquez'], ['Midnight’s Children', 'Salman Rushdie'], ['Kafka on the Shore', 'Haruki Murakami'], ['Like Water for Chocolate', 'Laura Esquivel']],
+      links: [['samtida-litterart', 'remove the flower-rain, the family curse remains'], ['familjeepos', 'same generations, no magic as glue']] },
+  );
+  // ==== DATA:SKRACK ====
+  GENRES.push(
+    { id: 'gotik', name: 'Gothic', c: 'skrack', x: 1450, y: 175,
+      blurb: 'A house with too many rooms, a family with too many secrets, and weather with an agenda. The Gothic invented horror’s grammar: the place that remembers, the past that refuses to stay past. Two hundred years old and still the load-bearing wall — every haunted house since is paying rent to the Brontës.',
+      books: [['Rebecca', 'Daphne du Maurier'], ['Jane Eyre', 'Charlotte Brontë'], ['Mexican Gothic', 'Silvia Moreno-Garcia'], ['Wuthering Heights', 'Emily Brontë']],
+      links: [['spokhistorier', 'the house’s memories get a physical form'], ['historisk-romantik', 'same estates and gowns, but someone gets a happy ending'], ['vampyrer-monster', 'the Gothic’s most successful export product']] },
+    { id: 'kosmisk-skrack', name: 'Cosmic horror', c: 'skrack', x: 1420, y: 330,
+      blurb: 'The universe is vast, ancient and completely indifferent to you — and that’s the good news. Not about monsters; about scale: the realization that humanity is a footnote that can be deleted. Yes, Lovecraft was a virulent racist whose prose was 40% the word "cyclopean" — the genre’s best current writers know it, and LaValle answered him with a better book than he ever wrote.',
+      books: [['The Ballad of Black Tom', 'Victor LaValle'], ['At the Mountains of Madness', 'H.P. Lovecraft'], ['The Fisherman', 'John Langan'], ['Blindsight', 'Peter Watts']],
+      links: [['first-contact', 'same encounter, hope still in the tube'], ['weird-fiction', 'the cousin who reads philosophy']] },
+    { id: 'spokhistorier', name: 'Ghost stories', c: 'skrack', x: 1595, y: 240,
+      blurb: 'The stairs creak and it’s either the house settling or the grief refusing to. Ghost stories are always about the living — the ghost is just sorrow’s most persistent format. Jackson’s Hill House is the genre’s perfect novel: eighty years of imitators and nobody has written a better first paragraph. Nobody’s close.',
+      books: [['The Haunting of Hill House', 'Shirley Jackson'], ['Ghost Stories of an Antiquary', 'M.R. James'], ['The Little Stranger', 'Sarah Waters'], ['Beloved', 'Toni Morrison']],
+      links: [['modern-litterar-skrack', 'same ghosts, more prize juries'], ['urban-fantasy', 'when the city haunts but takes meetings']] },
+    { id: 'folk-horror', name: 'Folk horror', c: 'skrack', x: 1710, y: 175,
+      blurb: 'The countryside smiles too wide, the harvest wants something, and you’re not invited to the midsummer celebration — you are the midsummer celebration. Civilization’s nagging suspicion that the old ways never left, they just waited. Sweden now exports this professionally, which the Swedes find hilarious and everyone else finds concerning.',
+      books: [['The Ritual', 'Adam Nevill'], ['Harvest Home', 'Thomas Tryon'], ['Wakenhyrst', 'Michelle Paver'], ['The Loney', 'Andrew Michael Hurley']],
+      links: [['sagor-folktro', 'the same folklore, back when it was friendly'], ['naturskrivande', 'the same landscape, except there it only WANTS to be loved']] },
+    { id: 'modern-litterar-skrack', name: 'Literary horror', c: 'skrack', x: 1600, y: 400,
+      blurb: 'Horror with fully load-rated prose and themes that survive daylight: class, racism, motherhood, bodies. The fear is still real — it just acquired a vocabulary. This is the genre’s current golden age, and the literary establishment is slowly noticing, roughly a decade after everyone else, as is tradition.',
+      books: [['The Only Good Indians', 'Stephen Graham Jones'], ['Her Body and Other Parties', 'Carmen Maria Machado'], ['Tender Is the Flesh', 'Agustina Bazterrica'], ['We Have Always Lived in the Castle', 'Shirley Jackson']],
+      links: [['samtida-litterart', 'the neighbors say hello, slightly pale'], ['psykologisk-thriller', 'same dread, no supernatural alibi']] },
+    { id: 'vampyrer-monster', name: 'Vampires & monsters', c: 'skrack', x: 1775, y: 320, anchor: 'end', lx: -11,
+      blurb: 'The monster is always a metaphor and the metaphor is always hungry. The vampire has played aristocracy, contagion, desire and loneliness — frequently in the same book. Rice made them horny and guilty, Lindqvist made them Swedish and sad, and both were somehow improvements on a century of capes.',
+      books: [['Dracula', 'Bram Stoker'], ['Let the Right One In', 'John Ajvide Lindqvist'], ['Interview with the Vampire', 'Anne Rice'], ['Frankenstein', 'Mary Shelley']],
+      links: [['romantasy', 'when the hunger switches genre and gets a happy ending'], ['kroppsskrack', 'the monster, viewed from inside']] },
+    { id: 'kroppsskrack', name: 'Body horror', c: 'skrack', x: 1800, y: 445, anchor: 'end', lx: -11,
+      blurb: 'The scariest haunted house is the one you live in: the body. Transformation, illness, pregnancy, aging — everything the flesh does without asking. This genre is fucking unpleasant, which is the point, and Kafka got there a hundred years early wearing a suit. Not recommended for new hypochondriacs. Strongly recommended for everyone else.',
+      books: [['The Metamorphosis', 'Franz Kafka'], ['Nightbitch', 'Rachel Yoder'], ['The Troop', 'Nick Cutter'], ['Bunny', 'Mona Awad']],
+      links: [['biopunk', 'the same body, with a patent number']] },
+  );
+
+  // ==== DATA:KRIM ====
+  GENRES.push(
+    { id: 'nordic-noir', name: 'Nordic noir', c: 'krim', x: 1490, y: 615,
+      blurb: 'Murder in the welfare state: grey skies, taciturn detectives, and the awkward question of how the idyll affords this many corpses. Sjöwall & Wahlöö invented it as a ten-volume Marxist critique disguised as police novels; the imitators kept the rain and lost the politics. Sweden’s biggest cultural export after a certain furniture store, and considerably darker in tone.',
+      books: [['Roseanna', 'Maj Sjöwall & Per Wahlöö'], ['The Girl with the Dragon Tattoo', 'Stieg Larsson'], ['Faceless Killers', 'Henning Mankell'], ['The Snowman', 'Jo Nesbø']],
+      links: [['polisprocedur', 'the methodology under the gloom'], ['psykologisk-thriller', 'move the murder off the street, into the head'], ['true-crime', 'same Nordics, no fictional safety net — a long haul across the map, worth it']] },
+    { id: 'polisprocedur', name: 'Police procedural', c: 'krim', x: 1665, y: 575,
+      blurb: 'The crime isn’t solved by a genius but by a collective with overtime, a coffee machine and internal friction. The procedural is crime fiction’s realism: paperwork as dramaturgy. When it’s done well, a warrant application reads like a cathedral. When it’s done badly, it reads like a warrant application.',
+      books: [['Cop Hater (87th Precinct)', 'Ed McBain'], ['The Laughing Policeman', 'Sjöwall & Wahlöö'], ['The Dry', 'Jane Harper'], ['Case Histories', 'Kate Atkinson']],
+      links: [['historisk-deckare', 'same methodology, older tech, better tailoring'], ['rattegangsdrama', 'the relay handoff: investigation passes to the law']] },
+    { id: 'hardboiled', name: 'Hardboiled', c: 'krim', x: 1815, y: 645, anchor: 'end', lx: -11,
+      blurb: 'A private eye, a bottle in the desk drawer, and a city that lies on every corner. Hardboiled invented the voice: tired, quick, incorruptible in a world where everything else is for sale. Chandler’s plots make no sense — he admitted he didn’t know who killed the chauffeur either — and it doesn’t matter, because nobody reads Chandler for the plot. The prose is so dry it’s a fire hazard.',
+      books: [['The Big Sleep', 'Raymond Chandler'], ['Farewell, My Lovely', 'Raymond Chandler'], ['The Maltese Falcon', 'Dashiell Hammett'], ['Devil in a Blue Dress', 'Walter Mosley']],
+      links: [['noir', 'same city, minus the detective’s spine to hold onto'], ['cyberpunk', 'the same detective, fifty years later, in neon']] },
+    { id: 'noir', name: 'Noir', c: 'krim', x: 1840, y: 775, anchor: 'end', lx: -11,
+      blurb: 'In hardboiled the hero is the last honest man; in noir there are no honest men left, least of all the narrator. Ordinary people make one bad choice and the genre spends the rest of the book collecting interest. It never ends well — that’s the contract, and Cain wrote it in stone in 1934. If you want comfort, the exit is that way, past romance.',
+      books: [['The Postman Always Rings Twice', 'James M. Cain'], ['Double Indemnity', 'James M. Cain'], ['Drive', 'James Sallis'], ['The Killer Inside Me', 'Jim Thompson']],
+      links: [['grimdark', 'the same view of humanity, with swords'], ['minimalism-dirty-realism', 'the same broken lives, no crime as an excuse']] },
+    { id: 'cozy-crime', name: 'Cozy mystery', c: 'krim', x: 1470, y: 770,
+      blurb: 'A murder, a village, an amateur sleuth with knitting — and the violence is tidied away before the tea goes cold. Death as a crossword. Sneer if you must, but Christie out-plotted every clever literary novelist of her century and sold more books than almost anyone who ever lived, and Osman is currently printing money with the same recipe plus a retirement home. The formula works. It has always worked.',
+      books: [['The Murder of Roger Ackroyd', 'Agatha Christie'], ['The Thursday Murder Club', 'Richard Osman'], ['Magpie Murders', 'Anthony Horowitz'], ['The Murder at the Vicarage', 'Agatha Christie']],
+      links: [['feelgood', 'the same village, minus the corpse'], ['historisk-deckare', 'the same puzzle in period lighting']] },
+    { id: 'psykologisk-thriller', name: 'Psychological thriller', c: 'krim', x: 1620, y: 870,
+      blurb: 'The crime scene is a marriage, a memory, or a narrator you never should have trusted. Post-Gone Girl, the market drowned in "The Girl on/in/with the [Noun]" clones, most of them with exactly one twist stretched over four hundred pages like cling film. Flynn remains the queen because her books are actually about something — marriage as war, likability as a con.',
+      books: [['Gone Girl', 'Gillian Flynn'], ['The Girl on the Train', 'Paula Hawkins'], ['The Silent Patient', 'Alex Michaelides'], ['Sharp Objects', 'Gillian Flynn']],
+      links: [['domestic-thriller', 'the same threat, but it lives at your house'], ['modern-litterar-skrack', 'when the dread gets supernatural citizenship']] },
+    { id: 'domestic-thriller', name: 'Domestic thriller', c: 'krim', x: 1480, y: 950,
+      blurb: 'The danger sits at the breakfast table. Marriages, neighborhoods, parent groups — the genre that turned everyday life into a crime scene and "my husband" into a warning label. Formulaic? Absolutely. But the formula is doing something honest: for a lot of readers, home statistically IS the most dangerous place, and this shelf knows it.',
+      books: [['Big Little Lies', 'Liane Moriarty'], ['Behind Closed Doors', 'B.A. Paris'], ['The Couple Next Door', 'Shari Lapena'], ['Apples Never Fall', 'Liane Moriarty']],
+      links: [['relationsroman', 'the same marriage, no criminal suspicion']] },
+    { id: 'spionroman', name: 'Spy fiction', c: 'krim', x: 1770, y: 950, anchor: 'end', lx: -11,
+      blurb: 'Loyalty as a scarce resource, truth as a negotiating position. Ignore the martinis — the real spy novel is bureaucratic tragedy: tired men in trenchcoats betraying each other on principle. Le Carré made waiting into high tension and never forgave the genre for preferring Bond. Herron writes le Carré with jokes, which shouldn’t work and absolutely does.',
+      books: [['Tinker Tailor Soldier Spy', 'John le Carré'], ['The Spy Who Came in from the Cold', 'John le Carré'], ['Slow Horses', 'Mick Herron'], ['American Spy', 'Lauren Wilkinson']],
+      links: [['konspirationsthriller', 'the same game at higher speed and lower credibility'], ['krigsroman', 'the war the spy is trying to prevent, or start']] },
+    { id: 'historisk-deckare', name: 'Historical mystery', c: 'krim', x: 1355, y: 665,
+      blurb: 'Murder solved with period tools: no phones, no DNA, just wits and era-appropriate prejudice to navigate. Double pleasure — the puzzle and the time travel. Eco wrote the genre’s cathedral and stuffed it with semiotics lectures nobody asked for, and it became a bestseller anyway, proving readers are smarter than publishers think. Monks remain suspiciously overrepresented as detectives.',
+      books: [['The Name of the Rose', 'Umberto Eco'], ['The Wolf and the Watchman', 'Niklas Natt och Dag'], ['An Instance of the Fingerpost', 'Iain Pears'], ['The Alienist', 'Caleb Carr']],
+      links: [['historisk-roman', 'the same era, without a corpse as the engine']] },
+    { id: 'rattegangsdrama', name: 'Legal thriller', c: 'krim', x: 1710, y: 745,
+      blurb: 'Truth isn’t decided in the world but in a room with rules, and the rules can be played. Cross-examination as fencing, the jury as oracle. Grisham wrote the same book thirty times and thirty times it was readable, which is its own dark magic. The genre where one well-timed question is an action scene.',
+      books: [['Presumed Innocent', 'Scott Turow'], ['To Kill a Mockingbird', 'Harper Lee'], ['The Lincoln Lawyer', 'Michael Connelly'], ['Anatomy of a Scandal', 'Sarah Vaughan']],
+      links: [['samtida-litterart', 'when the guilt is more interesting than the verdict']] },
+  );
+  // ==== DATA:KRIM ====
+  // ==== DATA:LITTERART ====
+  GENRES.push(
+    { id: 'samtida-litterart', name: 'Contemporary literary', c: 'litterart', x: 1040, y: 660,
+      blurb: 'Novels about being human right now, written as if language mattered — because it does. "Not a genre," says the genre, incorrectly: the conventions are all here (quiet epiphanies, dead mothers, an MFA glaze you can taste), they’re just subtler. The center of the map; every line leads here eventually, usually via a divorce.',
+      books: [['Normal People', 'Sally Rooney'], ['A Little Life', 'Hanya Yanagihara'], ['Klara and the Sun', 'Kazuo Ishiguro'], ['On Earth We’re Briefly Gorgeous', 'Ocean Vuong']],
+      links: [['autofiktion', 'when the word "fiction" on the label starts to sweat'], ['relationsroman', 'zoom in on two people and stay there'], ['noveller', 'the same precision, shorter runway']] },
+    { id: 'klassiker', name: 'The classics', c: 'litterart', x: 880, y: 720,
+      blurb: 'The books that outlived everyone who reviewed them. The Russians on the soul, the French on society, the English on everything the other two were too dramatic to notice. Stop treating them like homework: Anna Karenina is a soap opera with better sentences, Dostoevsky is true crime with theology, and Austen is meaner than any modern satirist. They survived for a reason.',
+      books: [['Anna Karenina', 'Leo Tolstoy'], ['Crime and Punishment', 'Fyodor Dostoevsky'], ['Pride and Prejudice', 'Jane Austen'], ['Middlemarch', 'George Eliot']],
+      links: [['bildningsroman', 'the classic’s favorite shape: someone becomes someone'], ['familjeepos', 'the Russians’ home turf, carried on'], ['historisk-romantik', 'Austen is its foremother, whether she’d approve or not (she wouldn’t)']] },
+    { id: 'bildningsroman', name: 'Coming of age', c: 'litterart', x: 790, y: 805,
+      blurb: 'Someone young goes somewhere and becomes someone else — the oldest story we have after the hunting anecdote. Growing up, class journeys, lost innocence: the form holds it all, because everyone has been nineteen and lost. Yes, including Holden Caulfield, who half of you hated in school and should try again now that you can see he’s drowning.',
+      books: [['Great Expectations', 'Charles Dickens'], ['The Catcher in the Rye', 'J.D. Salinger'], ['City of My Dreams', 'Per Anders Fogelström'], ['Shuggie Bain', 'Douglas Stuart']],
+      links: [['campusroman', 'the education moves to campus and becomes self-aware']] },
+    { id: 'familjeepos', name: 'Family saga', c: 'litterart', x: 960, y: 835,
+      blurb: 'Three generations, one inheritance, and at least one secret that detonates at a holiday dinner. History written through living rooms — centuries told in kitchen tables. Demands a family tree in the front matter and repays the effort with interest. Mann wrote the blueprint at twenty-five and then spent decades being insufferable about it, correctly.',
+      books: [['Pachinko', 'Min Jin Lee'], ['Homegoing', 'Yaa Gyasi'], ['Buddenbrooks', 'Thomas Mann'], ['The Emigrants', 'Vilhelm Moberg']],
+      links: [['historisk-roman', 'the same century, with strangers instead of relatives'], ['magisk-realism', 'add a curse and move to Macondo']] },
+    { id: 'postmodernism', name: 'Postmodernism', c: 'litterart', x: 1185, y: 700,
+      blurb: 'The novel discovers it’s a novel and has a crisis about it. Footnotes with subplots, unreliable indexes, books inside books. Infinite Jest is a genuinely great novel that has been ruined as a recommendation by every man who ever cornered you at a party about it — read it anyway, skip the party. Calvino did all of this first, lighter, and in half the pages.',
+      books: [['If on a winter’s night a traveler', 'Italo Calvino'], ['House of Leaves', 'Mark Z. Danielewski'], ['Infinite Jest', 'David Foster Wallace'], ['Pale Fire', 'Vladimir Nabokov']],
+      links: [['campusroman', 'its natural habitat and favorite target'], ['weird-fiction', 'the same rule-breaking, with monsters']] },
+    { id: 'autofiktion', name: 'Autofiction', c: 'litterart', x: 1120, y: 800,
+      blurb: 'The author writes about themselves, calls it a novel, and lets the lawyers sleep badly. Confession as art form: merciless to everyone, the narrator most of all. Knausgaard wrote 3,600 pages that include a forty-page children’s birthday party, and the maddening thing is it’s riveting — nobody knows why, least of all him. Norway holds the world title on unclear grounds. Ernaux took the Nobel doing it in a tenth of the pages, which felt pointed.',
+      books: [['My Struggle', 'Karl Ove Knausgaard'], ['Outline', 'Rachel Cusk'], ['The Years', 'Annie Ernaux'], ['A Fool, Free', 'Beate Grimsrud']],
+      links: [['biografi-memoar', 'the same life, with footnotes instead of liberties']] },
+    { id: 'minimalism-dirty-realism', name: 'Minimalism', c: 'litterart', x: 1250, y: 865, anchor: 'end', lx: -11,
+      blurb: 'Short sentences. Ordinary lives. Everything important left out, so it shows better. The Carver school writes layoffs and divorces with haiku tools — the pain lives between the lines. Footnote your professor skipped: Carver’s editor Gordon Lish cut the stories to the bone, sometimes against Carver’s screaming objections, so minimalism’s founding genius was arguably a guy with a red pen. The genre survived the scandal. Good sentences usually do.',
+      books: [['What We Talk About When We Talk About Love', 'Raymond Carver'], ['Jesus’ Son', 'Denis Johnson'], ['Olive Kitteridge', 'Elizabeth Strout'], ['A Manual for Cleaning Women', 'Lucia Berlin']],
+      links: [['noveller', 'the format it was born in']] },
+    { id: 'campusroman', name: 'Campus novel', c: 'litterart', x: 1285, y: 760, anchor: 'end', lx: -11,
+      blurb: 'Sealed rooms, huge egos, microscopic stakes — therefore total war. The university as terrarium: gifted people in inappropriate relationships with ideas and each other. Sometimes it stays at irony; sometimes they bury someone in the woods. Tartt has written three books in thirty years and each one arrives like a comet, which is either perfectionism or the best marketing strategy in publishing.',
+      books: [['The Secret History', 'Donna Tartt'], ['Lucky Jim', 'Kingsley Amis'], ['Stoner', 'John Williams'], ['Babel', 'R.F. Kuang']],
+      links: [['psykologisk-thriller', 'when the seminar goes properly wrong']] },
+    { id: 'noveller', name: 'Short stories', c: 'litterart', x: 900, y: 930,
+      blurb: 'The novel’s concentrate: a life in twenty pages, a turn you didn’t see, then silence. The short story forgives nothing — every sentence carries load — which is why the form is revered by writers and ignored by the market, a fact that has annoyed everyone since Chekhov. Nobody has beaten Chekhov. Saunders came closest by not trying.',
+      books: [['Collected Stories', 'Anton Chekhov'], ['Interpreter of Maladies', 'Jhumpa Lahiri'], ['Tenth of December', 'George Saunders'], ['Her Body and Other Parties', 'Carmen Maria Machado']],
+      links: [['sagor-folktro', 'the form’s oldest relative: the tale told at the fire']] },
+    { id: 'satir', name: 'Satire', c: 'litterart', x: 1170, y: 930,
+      blurb: 'Social criticism with the knife inside the smile. Satire says what no other genre dares by pretending to joke — and gets alternately banned and proven prophetic, sometimes in the same decade. Bulgakov wrote the devil visiting Moscow while Stalin was alive, which makes every "brave" modern satirist look like they’re heckling from a very safe seat.',
+      books: [['Catch-22', 'Joseph Heller'], ['The Master and Margarita', 'Mikhail Bulgakov'], ['American Psycho', 'Bret Easton Ellis'], ['The Sellout', 'Paul Beatty']],
+      links: [['dystopi', 'satire that stopped laughing'], ['fantasy-satir', 'the same knives, funnier props']] },
+    { id: 'relationsroman', name: 'The relationship novel', c: 'litterart', x: 1040, y: 1000,
+      blurb: 'Two people (occasionally more) and the impossibility of reaching each other — that’s it, that’s always been enough. The Rooney school writes love as class anxiety and text-message archaeology, and an entire generation saw itself so precisely it got uncomfortable. Detractors call it "millennials failing to communicate: the genre". The detractors are describing the human condition and don’t know it.',
+      books: [['Conversations with Friends', 'Sally Rooney'], ['One Day', 'David Nicholls'], ['Tomorrow, and Tomorrow, and Tomorrow', 'Gabrielle Zevin'], ['Writers & Lovers', 'Lily King']],
+      links: [['romcom', 'the same two people, with a guaranteed landing'], ['feelgood', 'when the relationship is meant to mend, not fray']] },
+  );
+
+  // ==== DATA:HISTORIA ====
+  GENRES.push(
+    { id: 'historisk-roman', name: 'Historical fiction', c: 'historia', x: 380, y: 760,
+      blurb: 'A time machine built out of research: smells, prices, table manners — and in the middle of it, people who don’t know how it ends. The good historical novel never cheats on the details and only lies where the sources go quiet. Mantel turned it into higher mathematics and won two Bookers doing it; half the genre has been writing "Wolf Hall at home" ever since.',
+      books: [['Wolf Hall', 'Hilary Mantel'], ['Memoirs of Hadrian', 'Marguerite Yourcenar'], ['The Pillars of the Earth', 'Ken Follett'], ['Hamnet', 'Maggie O’Farrell']],
+      links: [['alternativhistoria', 'one single "what if" away'], ['nordiskt-historiskt', 'the same craft, on home ice'], ['klassiker', 'which were written when the era was the present']] },
+    { id: 'sjoroman', name: 'Naval fiction', c: 'historia', x: 200, y: 845,
+      blurb: 'Deck planks, rigging, and a thousand miles to the nearest excuse. The sea novel is a workplace drama disguised as adventure: hierarchy, weather, friendship in a room you cannot leave. O’Brian wrote twenty volumes of two men bickering on a boat and it’s one of the great literary friendships of the century; readers are still in mourning that it ended. Melville, meanwhile, will teach you more about whale taxonomy than you agreed to.',
+      books: [['Master and Commander', 'Patrick O’Brian'], ['Moby-Dick', 'Herman Melville'], ['Mr. Midshipman Hornblower', 'C.S. Forester'], ['The Terror', 'Dan Simmons']],
+      links: [['aventyrsklassiker', 'the same horizon, on land as well'], ['rymdopera', 'exactly the same genre — the ships just fly higher']] },
+    { id: 'vastern', name: 'Western', c: 'historia', x: 255, y: 975,
+      blurb: 'Myth with a saddle: the borderland where law is negotiable and the landscape has top billing. The modern western tears the halo off — the violence costs, the land was never empty. McCarthy wrote the genre’s Old Testament in Blood Meridian, a book so violent and so beautiful that critics are still fighting about whether it’s a masterpiece or an atrocity. (It’s both. That’s the review.)',
+      books: [['Blood Meridian', 'Cormac McCarthy'], ['Lonesome Dove', 'Larry McMurtry'], ['True Grit', 'Charles Portis'], ['The Sisters Brothers', 'Patrick deWitt']],
+      links: [['noir', 'the same morality, swap prairie sky for streetlights'], ['grimdark', 'fantasy borrowed this entire palette']] },
+    { id: 'krigsroman', name: 'War novel', c: 'historia', x: 500, y: 855,
+      blurb: 'War without trumpets: waiting, mud, absurdity, and the bill that arrives afterwards. The great war novels were written by people who were there and never entirely came home. Mandatory reading for everyone who thinks war sounds simple, which — judging by the news — remains a growth demographic.',
+      books: [['All Quiet on the Western Front', 'Erich Maria Remarque'], ['The Things They Carried', 'Tim O’Brien'], ['Slaughterhouse-Five', 'Kurt Vonnegut'], ['Matterhorn', 'Karl Marlantes']],
+      links: [['satir', 'Heller and Vonnegut live in both houses'], ['popularhistoria', 'the same wars, with citations']] },
+    { id: 'aventyrsklassiker', name: 'Adventure classics', c: 'historia', x: 420, y: 1005,
+      blurb: 'Treasure maps, mistaken identities, revenge served with a rapier — storytelling’s pure sugar. This genre taught the world to turn pages. Dated? Sure, in places. But Dumas remains the undefeated master of the cliffhanger, and The Count of Monte Cristo is still the most satisfying revenge ever committed to paper. Everything since is a footnote with a grappling hook.',
+      books: [['The Count of Monte Cristo', 'Alexandre Dumas'], ['Treasure Island', 'Robert Louis Stevenson'], ['The Three Musketeers', 'Alexandre Dumas'], ['Around the World in Eighty Days', 'Jules Verne']],
+      links: [['actionthriller', 'the same pulse, modern props'], ['portalfantasy', 'the same promise: away from here, somewhere else']] },
+    { id: 'nordiskt-historiskt', name: 'Nordic historical', c: 'historia', x: 550, y: 720,
+      blurb: 'Viking voyages, plague years, and the empire’s hangover — the North told from inside. Bengtsson’s The Long Ships is the funniest book ever written about people who axe each other, and Undset won the Nobel for a medieval trilogy that reads like it was reported live. History with place names you can actually visit, weather included at no extra charge.',
+      books: [['The Long Ships', 'Frans G. Bengtsson'], ['Kristin Lavransdatter', 'Sigrid Undset'], ['The Road to Jerusalem', 'Jan Guillou'], ['Ride This Night', 'Vilhelm Moberg']],
+      links: [['historisk-deckare', 'The Wolf and the Watchman stands with a foot in each'], ['familjeepos', 'Moberg and Undset share the wall between the houses']] },
+  );
+  // ==== DATA:HISTORIA ====
+  // ==== DATA:ROMANTIK-THRILLER ====
+  GENRES.push(
+    { id: 'romcom', name: 'Rom-com', c: 'romantik', x: 950, y: 1140,
+      blurb: 'Two people, one obvious solution, and three hundred pages of reasons not to see it. The contract is iron: the ending will be happy, the getting-there will hurt pleasantly. The genre the literary world pretends to look down on and reads on the train with the cover angled away. Emily Henry is currently better at sentence-level craft than half the Booker longlist; nobody will admit it because the covers have cartoons on them.',
+      books: [['Beach Read', 'Emily Henry'], ['The Hating Game', 'Sally Thorne'], ['Red, White & Royal Blue', 'Casey McQuiston'], ['Bridget Jones’s Diary', 'Helen Fielding']],
+      links: [['relationsroman', 'remove the happy-ending warranty'], ['feelgood', 'the same warmth, romance optional'], ['tidsresor', 'a shockingly compatible spare part']] },
+    { id: 'historisk-romantik', name: 'Historical romance', c: 'romantik', x: 830, y: 1220,
+      blurb: 'Dance cards, correspondence, and glances across a dinner party — desire in an age when a glove was a message. Austen is the source; Bridgerton is the theme park. The corset is thematic: everything is about what cannot be said. And say what you want about the genre, it has the most honest readership in publishing: they know exactly what they came for, and they get it, every time. Name another genre with that customer satisfaction.',
+      books: [['The Duke and I (Bridgerton)', 'Julia Quinn'], ['Outlander', 'Diana Gabaldon'], ['Devil in Winter', 'Lisa Kleypas'], ['Persuasion', 'Jane Austen']],
+      links: [['gotik', 'the same estate, except the house hates you'], ['klassiker', 'the foremother, who never asked for this'], ['historisk-roman', 'the same era, love demoted to subplot']] },
+    { id: 'romantasy', name: 'Romantasy', c: 'romantik', x: 1120, y: 1075,
+      blurb: 'Fantasy and romance merged their universes and created the fastest-growing shelf in the bookstore. Fae courts, dragon riders, love interests with wings and attitude problems. Critics call it fanfic with a marketing budget, and here’s the thing: they said that about every genre women built, and every time, the genre bought the building. Maas has sold forty million books. The critics have sold think-pieces.',
+      books: [['A Court of Thorns and Roses', 'Sarah J. Maas'], ['Fourth Wing', 'Rebecca Yarros'], ['From Blood and Ash', 'Jennifer L. Armentrout'], ['Uprooted', 'Naomi Novik']],
+      links: [['episk-fantasy', 'the world-building, at a lower pulse'], ['vampyrer-monster', 'the love interest’s family tree']] },
+    { id: 'feelgood', name: 'Feelgood & up lit', c: 'romantik', x: 1060, y: 1205,
+      blurb: 'Books that mend instead of fray: a grump thaws, a bookshop is saved, a person finds their way back. Up lit is feelgood with literary ambitions — the warmth is the method, not the apology. Backman has made grown men cry on commuter trains across several continents, which is a stranger superpower than anything in the fantasy quadrant. Prescribed against November.',
+      books: [['A Man Called Ove', 'Fredrik Backman'], ['Eleanor Oliphant Is Completely Fine', 'Gail Honeyman'], ['The Unlikely Pilgrimage of Harold Fry', 'Rachel Joyce'], ['Anxious People', 'Fredrik Backman']],
+      links: [['cozy-crime', 'add one tidy corpse'], ['cozy-fantasy', 'the same tea, plus dragons'], ['bildningsroman', 'up lit is often a coming-of-age novel at forty-five']] },
+  );
+
+  GENRES.push(
+    { id: 'technothriller', name: 'Technothriller', c: 'thriller', x: 1620, y: 1095,
+      blurb: 'The suspense lives in the spec sheet: submarines, viruses, zero-days — technology described with such love that the plot sometimes waits in the hallway. Clancy would pause a nuclear crisis to walk you through a sonar array, and his readers loved him for it. Crichton had the better trick: he made the lecture the thrill. Read by people who say "this is actually plausible" out loud, to no one.',
+      books: [['Jurassic Park', 'Michael Crichton'], ['The Hunt for Red October', 'Tom Clancy'], ['Daemon', 'Daniel Suarez'], ['Project Hail Mary', 'Andy Weir']],
+      links: [['cyberpunk', 'the same servers, except there the system is the villain'], ['hard-sf', 'the same spec-sheet love, less hurry'], ['konspirationsthriller', 'swap the technical appendix for a shadow government']] },
+    { id: 'konspirationsthriller', name: 'Conspiracy thriller', c: 'thriller', x: 1770, y: 1160, anchor: 'end', lx: -11,
+      blurb: 'Everything is connected, nothing is coincidence, and the truth is in a vault under a cathedral. Let’s be honest: this genre is objectively kind of terrible — Dan Brown writes sentences that read like furniture assembly instructions having a panic attack — and yet the pages turn themselves and you miss your stop. The promise is order: the world’s chaos is secretly somebody’s plan. Comforting, in a paranoid way. Eco wrote Foucault’s Pendulum to mock all of it and accidentally wrote its masterpiece.',
+      books: [['The Da Vinci Code', 'Dan Brown'], ['The Bourne Identity', 'Robert Ludlum'], ['I Am Pilgrim', 'Terry Hayes'], ['Foucault’s Pendulum', 'Umberto Eco']],
+      links: [['spionroman', 'the grown-up relative with source criticism'], ['postmodernism', 'Eco laughing at the genre from inside it']] },
+    { id: 'actionthriller', name: 'Action thriller', c: 'thriller', x: 1550, y: 1205,
+      blurb: 'One man (it is nearly always a man), one mission, and a page count that works like a metronome. The Reacher formula is competence porn with a moral scoreboard: nobody reads Lee Child for the prose — "Reacher said nothing" appears roughly four hundred times across the series — and twenty-eight books later we are all still reading. Airport literature’s spine, and airports would collapse without it.',
+      books: [['Killing Floor', 'Lee Child'], ['The Gray Man', 'Mark Greaney'], ['Orphan X', 'Gregg Hurwitz'], ['The Terminal List', 'Jack Carr']],
+      links: [['aventyrsklassiker', 'Dumas with automatic weapons'], ['spionroman', 'the same profession, more paperwork over there']] },
+    { id: 'katastrofroman', name: 'Disaster novel', c: 'thriller', x: 1680, y: 1275, anchor: 'end', lx: -11,
+      blurb: 'The pandemic, the comet, the reactor — the countdown as narrative. A stress test of civilization: what holds, what snaps, who shares the canned goods. King’s The Stand is the genre’s cathedral, and like most King it’s magnificent for a thousand pages and then the ending shows up underdressed — his one reliable flaw, and by then you’re too invested to complain. Do not read during an active news cycle.',
+      books: [['The Stand', 'Stephen King'], ['World War Z', 'Max Brooks'], ['The Andromeda Strain', 'Michael Crichton'], ['Blindness', 'José Saramago']],
+      links: [['postapokalyps', 'the next chapter, once the dust settles'], ['technothriller', 'the same crisis, but someone competent gets to stop it']] },
+  );
+  // ==== DATA:FAKTA ====
+  GENRES.push(
+    { id: 'popularhistoria', name: 'Pop history', c: 'fakta', x: 300, y: 1200,
+      blurb: 'History told as if the reader were welcome: characters, motives, the smell of the era — footnotes present but stowed in the luggage. The bridge between the novel and the dissertation. Harari sold twenty million copies by sanding every complication off the last 70,000 years, and actual historians have been quietly furious ever since; Tuchman got there first and did it without cutting corners. Side effect: five new book purchases per book read. There is no cure.',
+      books: [['The Guns of August', 'Barbara Tuchman'], ['Sapiens', 'Yuval Noah Harari'], ['Augustus', 'Adrian Goldsworthy'], ['Istanbul', 'Bettany Hughes']],
+      links: [['historisk-roman', 'the same eras, poetic license switched on'], ['biografi-memoar', 'zoom in on a single human']] },
+    { id: 'popularvetenskap', name: 'Pop science', c: 'fakta', x: 200, y: 1300,
+      blurb: 'The universe, the cell, the algorithm — explained by people who both know and want to be understood, a rarer combination than it should be. Good pop science never lies downward; it just lowers the abstraction until your feet touch. Bryson has made a career of being professionally astonished, and honestly, the man has a point. The feeling afterwards: the world got bigger, not simpler.',
+      books: [['A Short History of Nearly Everything', 'Bill Bryson'], ['The Gene', 'Siddhartha Mukherjee'], ['Entangled Life', 'Merlin Sheldrake'], ['The Body', 'Bill Bryson']],
+      links: [['hard-sf', 'the fiction branch of the same curiosity — a long line across the map, and it holds'], ['naturskrivande', 'the same nature, more feeling than mechanism']] },
+    { id: 'biografi-memoar', name: 'Biography & memoir', c: 'fakta', x: 420, y: 1280,
+      blurb: 'A life, sorted. Biography looks from outside with an archive; memoir looks from inside with whatever memory decides to invent. The best of both camps admit that a human being does not add up — and write it anyway. Beware the ghost-written athlete memoir, a genre of its own with the emotional depth of a press release; the Zlatan book is the exception because Zlatan is the exception, obviously.',
+      books: [['Educated', 'Tara Westover'], ['The Year of Magical Thinking', 'Joan Didion'], ['Steve Jobs', 'Walter Isaacson'], ['I Am Zlatan Ibrahimović', 'David Lagercrantz']],
+      links: [['autofiktion', 'the memoir that switched to fiction’s license plates'], ['bildningsroman', 'the same arc, invented — the line crosses half the map, like a life']] },
+    { id: 'reportage', name: 'Longform journalism', c: 'fakta', x: 520, y: 1170,
+      blurb: 'Journalism with the novelist’s toolbox: scenes, characters, dramaturgy — and every word sourced. Capote invented the "nonfiction novel" with In Cold Blood and then spent years embellishing it, which the genre has been arguing about ever since; Keefe writes it clean and proves you never needed to cheat. The genre that makes long flights short.',
+      books: [['In Cold Blood', 'Truman Capote'], ['Into Thin Air', 'Jon Krakauer'], ['The Emperor', 'Ryszard Kapuściński'], ['Say Nothing', 'Patrick Radden Keefe']],
+      links: [['true-crime', 'the reportage that specialized in crime'], ['krigsroman', 'the same fronts, without fiction’s mercy — a long line, heavy freight']] },
+    { id: 'naturskrivande', name: 'Nature writing', c: 'fakta', x: 350, y: 1385,
+      blurb: 'The essay that goes outside: forests, birds, moss, and a human trying to pay attention. Slowness as literary method, in an economy built to prevent it. Fair warning about the genre’s soggy end — there’s a strain of it where a man walks in fog and feels things at you for 300 pages — but Shepherd wrote the mountain better than anyone before or since, in a book so short it fits in a pocket. Side effect: you learn tree names and cannot stop.',
+      books: [['H Is for Hawk', 'Helen Macdonald'], ['The Living Mountain', 'Nan Shepherd'], ['Braiding Sweetgrass', 'Robin Wall Kimmerer'], ['Underland', 'Robert Macfarlane']],
+      links: [['klimatfiktion', 'the same love, with the future as the stake — the line spans the whole map, like the question'], ['folk-horror', 'what nature writing sees after dusk']] },
+    { id: 'true-crime', name: 'True crime', c: 'fakta', x: 560, y: 1255,
+      blurb: 'Real crimes, told with the thriller’s grip and — in the best cases — journalism’s conscience. The genre has one permanent, unsolvable problem: the suspense is somebody’s worst day, and an entire podcast economy is built on pretending otherwise. The good books know it and write about the victims, the systems, and us, the readers who cannot stop. McNamara died chasing her killer and the book helped catch him anyway. That’s the genre at its best; most of it is not the genre at its best.',
+      books: [['I’ll Be Gone in the Dark', 'Michelle McNamara'], ['In Cold Blood', 'Truman Capote'], ['The Five', 'Hallie Rubenhold'], ['The Stranger Beside Me', 'Ann Rule']],
+      links: [['nordic-noir', 'the fiction mirror on the far side of the map — a long-haul line for the hardened']] },
+  );
+
+  // ---------------------------------------------------------------------------
+  const svg = document.getElementById('map');
+  const NS = 'http://www.w3.org/2000/svg';
+  const panel = document.getElementById('panel');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const byId = Object.fromEntries(GENRES.map(g => [g.id, g]));
+
+  function neighbors(id) {
+    const out = [];
+    const g = byId[id];
+    for (const [to, why] of (g.links || [])) {
+      if (byId[to]) out.push({ id: to, why });
+    }
+    for (const other of GENRES) {
+      if (other.id === id) continue;
+      for (const [to, why] of (other.links || [])) {
+        if (to === id && !out.some(o => o.id === other.id)) {
+          out.push({ id: other.id, why });
+        }
+      }
+    }
+    return out;
+  }
+
+  function el(name, attrs, parent) {
+    const node = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    (parent || svg).appendChild(node);
+    return node;
+  }
+
+  const dustLayer = el('g', {});
+  for (let i = 0; i < 260; i++) {
+    el('circle', {
+      class: 'dust',
+      cx: (Math.random() * 2000).toFixed(1),
+      cy: (Math.random() * 1500).toFixed(1),
+      r: (Math.random() * 1.1 + 0.2).toFixed(2),
+      opacity: (Math.random() * 0.5 + 0.08).toFixed(2),
+    }, dustLayer);
+  }
+
+  for (const c of CONST_LABELS) {
+    const t = el('text', { class: 'const-label', x: c.x, y: c.y, 'font-size': c.size, 'text-anchor': 'middle' });
+    t.textContent = c.text;
+  }
+
+  const edgeLayer = el('g', {});
+  const edgeEls = {};
+  const seen = new Set();
+  for (const g of GENRES) {
+    for (const [to] of (g.links || [])) {
+      const other = byId[to];
+      if (!other) continue;
+      const key = [g.id, to].sort().join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const mx = (g.x + other.x) / 2 + (g.y - other.y) * 0.08;
+      const my = (g.y + other.y) / 2 + (other.x - g.x) * 0.08;
+      const p = el('path', { class: 'edge', d: `M ${g.x} ${g.y} Q ${mx} ${my} ${other.x} ${other.y}` }, edgeLayer);
+      edgeEls[key] = p;
+    }
+  }
+
+  const starEls = {};
+  for (const g of GENRES) {
+    const grp = el('g', { class: 'star', 'data-id': g.id, tabindex: 0, role: 'button', 'aria-label': g.name });
+    const hex = GROUPS[g.c].hex;
+    el('circle', { class: 'halo', cx: g.x, cy: g.y, r: 15, fill: hex }, grp);
+    el('circle', { class: 'core', cx: g.x, cy: g.y, r: 6, fill: hex }, grp);
+    const t = el('text', { x: g.x + (g.lx ?? 11), y: g.y + (g.ly ?? 4), 'text-anchor': g.anchor || 'start' }, grp);
+    t.textContent = g.name;
+    grp.addEventListener('click', () => select(g.id, true));
+    grp.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(g.id, true); } });
+    starEls[g.id] = grp;
+  }
+
+  let selected = null;
+  function select(id, fly) {
+    selected = id;
+    const g = byId[id];
+    document.querySelectorAll('.star.sel, .star.lit').forEach(n => n.classList.remove('sel', 'lit'));
+    Object.values(edgeEls).forEach(p => p.classList.remove('lit'));
+    starEls[id].classList.add('sel');
+    const adj = neighbors(id);
+    for (const n of adj) {
+      starEls[n.id]?.classList.add('lit');
+      const key = [id, n.id].sort().join('|');
+      edgeEls[key]?.classList.add('lit');
+    }
+    renderPanel(g, adj);
+    if (fly) flyTo(g.x, g.y);
+    document.getElementById('hint').classList.add('gone');
+  }
+
+  function renderPanel(g, adj) {
+    const group = GROUPS[g.c];
+    panel.style.setProperty('--c', group.color);
+    panel.innerHTML = `
+      <button id="closepanel" aria-label="Close">✕</button>
+      <span class="chip">${group.name}</span>
+      <h2>${g.name}</h2>
+      <div class="blurb">${g.blurb}</div>
+      <h3>Anchor stars</h3>
+      <ul class="books">${g.books.map(([t, a]) => `<li>${t} <i>— ${a}</i></li>`).join('')}</ul>
+      <h3>If you like this, try</h3>
+      <ul class="adj">${adj.map(n => `<li><button data-goto="${n.id}"><b>${byId[n.id].name}</b><span class="why">${n.why}</span></button></li>`).join('')}</ul>
+    `;
+    panel.classList.add('open');
+    panel.scrollTop = 0;
+    panel.querySelector('#closepanel').addEventListener('click', () => {
+      panel.classList.remove('open');
+      document.querySelectorAll('.star.sel, .star.lit').forEach(n => n.classList.remove('sel', 'lit'));
+      Object.values(edgeEls).forEach(p => p.classList.remove('lit'));
+      selected = null;
+    });
+    panel.querySelectorAll('[data-goto]').forEach(b =>
+      b.addEventListener('click', () => select(b.dataset.goto, true)));
+  }
+
+  const vb = { x: 0, y: 0, w: 2000, h: 1500 };
+  function applyVb() { svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); }
+
+  function clientToMap(cx, cy) {
+    const r = svg.getBoundingClientRect();
+    return [vb.x + ((cx - r.left) / r.width) * vb.w, vb.y + ((cy - r.top) / r.height) * vb.h];
+  }
+
+  function zoomAt(cx, cy, factor) {
+    const [mx, my] = clientToMap(cx, cy);
+    const w = Math.min(3200, Math.max(300, vb.w * factor));
+    const scale = w / vb.w;
+    vb.x = mx - (mx - vb.x) * scale;
+    vb.y = my - (my - vb.y) * scale;
+    vb.w = w; vb.h = vb.h * scale;
+    applyVb();
+  }
+
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1.12 : 0.89);
+  }, { passive: false });
+
+  const pointers = new Map();
+  let lastPinch = null;
+  svg.addEventListener('pointerdown', e => {
+    pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    svg.setPointerCapture(e.pointerId);
+    svg.classList.add('dragging');
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId);
+    pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pointers.size === 1) {
+      const r = svg.getBoundingClientRect();
+      vb.x -= (e.clientX - prev[0]) * (vb.w / r.width);
+      vb.y -= (e.clientY - prev[1]) * (vb.h / r.height);
+      applyVb();
+    } else if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      const d = Math.hypot(pts[0][0] - pts[1][0], pts[0][1] - pts[1][1]);
+      if (lastPinch) {
+        const cx = (pts[0][0] + pts[1][0]) / 2, cy = (pts[0][1] + pts[1][1]) / 2;
+        zoomAt(cx, cy, lastPinch / d);
+      }
+      lastPinch = d;
+    }
+  });
+  const endPointer = e => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) lastPinch = null;
+    if (pointers.size === 0) svg.classList.remove('dragging');
+  };
+  svg.addEventListener('pointerup', endPointer);
+  svg.addEventListener('pointercancel', endPointer);
+
+  function flyTo(x, y) {
+    const targetW = Math.min(vb.w, 900);
+    const target = { x: x - targetW / 2, y: y - (targetW * 0.75) / 2, w: targetW, h: targetW * 0.75 };
+    if (reduced) { Object.assign(vb, target); applyVb(); return; }
+    const start = { ...vb };
+    const t0 = performance.now();
+    const dur = 550;
+    const ease = t => 1 - Math.pow(1 - t, 3);
+    (function step(now) {
+      const t = Math.min(1, (now - t0) / dur), k = ease(t);
+      vb.x = start.x + (target.x - start.x) * k;
+      vb.y = start.y + (target.y - start.y) * k;
+      vb.w = start.w + (target.w - start.w) * k;
+      vb.h = start.h + (target.h - start.h) * k;
+      applyVb();
+      if (t < 1) requestAnimationFrame(step);
+    })(t0);
+  }
+
+  const searchEl = document.getElementById('search');
+  const resultsEl = document.getElementById('results');
+  function norm(s) { return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+  searchEl.addEventListener('input', () => {
+    const q = norm(searchEl.value.trim());
+    resultsEl.innerHTML = '';
+    if (q.length < 2) return;
+    const hits = [];
+    for (const g of GENRES) {
+      if (norm(g.name).includes(q)) hits.push({ id: g.id, label: g.name, hint: GROUPS[g.c].name });
+      for (const [t, a] of g.books) {
+        if (norm(t).includes(q) || norm(a).includes(q)) {
+          hits.push({ id: g.id, label: `${t} — ${a}`, hint: `lives in ${g.name}` });
+        }
+      }
+    }
+    for (const h of hits.slice(0, 12)) {
+      const b = document.createElement('button');
+      b.innerHTML = `${h.label}<br><span class="hint">${h.hint}</span>`;
+      b.addEventListener('click', () => { resultsEl.innerHTML = ''; searchEl.value = ''; select(h.id, true); });
+      resultsEl.appendChild(b);
+    }
+  });
+  document.addEventListener('click', e => {
+    if (!resultsEl.contains(e.target) && e.target !== searchEl) resultsEl.innerHTML = '';
+  });
+
+  document.getElementById('rndbtn').addEventListener('click', () => {
+    const g = GENRES[Math.floor(Math.random() * GENRES.length)];
+    select(g.id, true);
+  });
+
+  const legend = document.getElementById('legend');
+  for (const g of Object.values(GROUPS)) {
+    const s = document.createElement('span');
+    s.style.setProperty('--c', g.color);
+    s.textContent = g.name;
+    legend.appendChild(s);
+  }
+
+  applyVb();
+  setTimeout(() => document.getElementById('hint')?.classList.add('gone'), 9000);
+})();
+</script>
+</body>
+</html>
